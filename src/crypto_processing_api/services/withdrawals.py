@@ -833,9 +833,20 @@ def claim_for_submission(session: Session, withdrawal_id: uuid.UUID) -> bool:
 
 
 def due_for_submission(session: Session, *, limit: int = 20) -> list[uuid.UUID]:
+    """Approved withdrawals the BTCPay payout submitter may claim.
+
+    The backend filter is load-bearing. Without it a manual-TRON row is handed
+    to the BTCPay submitter, which quotes a **BTC** fee against a USDT payment
+    method and asks Greenfield to pay out a token it has no handler for. The
+    payout is rejected, `resolve_stuck` finds nothing and returns the row to
+    `approved`, and the whole cycle repeats every ten seconds.
+    """
     rows = session.execute(
         select(Withdrawal.id)
-        .where(Withdrawal.status == WithdrawalStatus.APPROVED)
+        .where(
+            Withdrawal.status == WithdrawalStatus.APPROVED,
+            Withdrawal.backend == BACKEND_BTCPAY,
+        )
         .order_by(Withdrawal.created_at)
         .limit(limit)
     ).scalars()
@@ -843,6 +854,13 @@ def due_for_submission(session: Session, *, limit: int = 20) -> list[uuid.UUID]:
 
 
 def due_for_polling(session: Session, *, limit: int = 100) -> list[uuid.UUID]:
+    """Withdrawals Job B should re-check against Greenfield.
+
+    Manual-TRON rows are excluded: their `backend_ref` is `manual:<uuid>`, not
+    a BTCPay payout id, so polling one asks Greenfield about a payout that
+    cannot exist and logs an error on every sweep. Their own sweep is
+    `sweep_manual_withdrawals`, which asks TronGrid instead.
+    """
     rows = session.execute(
         select(Withdrawal.id)
         .where(
@@ -852,6 +870,7 @@ def due_for_polling(session: Session, *, limit: int = 100) -> list[uuid.UUID]:
                     WithdrawalStatus.BROADCAST,
                 )
             ),
+            Withdrawal.backend == BACKEND_BTCPAY,
             Withdrawal.backend_ref.isnot(None),
         )
         .order_by(Withdrawal.updated_at)
