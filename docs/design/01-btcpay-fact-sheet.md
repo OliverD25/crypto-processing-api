@@ -1,0 +1,74 @@
+# BTCPay Server Fact Sheet — verified against current docs (August 2026)
+
+Legend: [VERIFIED] = confirmed against a primary source. [UNVERIFIED] = could not be confirmed from primary sources; treat as assumption. Notes on brief errors collected at the end.
+
+## 1. Invoice API
+
+- Endpoint: `POST /api/v1/stores/{storeId}/invoices`. Key request fields: `amount` (decimal string, optional), `currency`, `metadata` (free-form JSON, echoed back in webhooks), `checkout` (options incl. expiration), `additionalSearchTerms`. Source: https://raw.githubusercontent.com/btcpayserver/btcpayserver/master/BTCPayServer/wwwroot/swagger/v1/swagger.template.invoices.json — [VERIFIED]
+- Top-up invoice: created by leaving `amount` null/unspecified; swagger states the invoice "will consider any payment as a full payment". So partial/overpayment semantics don't apply the same way — any amount settles it. Source: same swagger file — [VERIFIED]
+- Invoice statuses: `New, Processing, Expired, Invalid, Settled`; additional status enum: `None, PaidLate, PaidPartial, Marked, Invalid, PaidOver`. Source: same swagger file — [VERIFIED]
+- Partial payment (standard invoice): stays `New (paidPartial)` until expiry, then `Expired (paidPartial)`. Overpayment: `Settled (paidOver)`. Payment after expiry: `Expired (paidLate)`; funds still arrive in the wallet (addresses don't expire; expiration only locks the exchange rate window). Sources: https://docs.btcpayserver.org/Invoices/, https://docs.btcpayserver.org/FAQ/Stores/ — [VERIFIED]
+- Top-up invoice as a permanent per-user deposit address: **NO — this does not work.** Top-up invoices still expire like normal invoices, and BTCPay's core design is "no address re-use" — every invoice gets a fresh BTC address. The documented long-lived construct is Payment Requests, but even those generate a new address per payment. The correct deposit pattern is: create a (top-up) invoice per deposit intent, and handle `afterExpiration`-flagged webhook payments. Sources: https://docs.btcpayserver.org/Invoices/, https://docs.btcpayserver.org/PaymentRequests/, https://github.com/btcpayserver/btcpayserver/discussions/4086 — [VERIFIED]
+- Whether a top-up invoice accepts multiple sequential payments after it settles (i.e., can be paid repeatedly before expiry) — [UNVERIFIED]; design conservatively around one credit per invoice plus webhook-driven reconciliation.
+
+## 2. Webhook events
+
+- Invoice events: `InvoiceCreated`, `InvoiceReceivedPayment`, `InvoicePaymentSettled`, `InvoiceProcessing` (paid, awaiting confirmations), `InvoiceSettled` (enough confirmations), `InvoiceExpired`, `InvoiceInvalid`. Payout events also exist: `PayoutCreated`, `PayoutApproved`, `PayoutUpdated` — useful for the withdrawal state machine. Source: https://raw.githubusercontent.com/btcpayserver/btcpayserver/master/BTCPayServer/wwwroot/swagger/v1/swagger.template.webhooks.json — [VERIFIED]
+- Payload base fields: `deliveryId`, `webhookId`, `originalDeliveryId`, `isRedelivery`, `type`, `timestamp` (Unix). Invoice events add `storeId`, `invoiceId`, `metadata`, and conditionals `afterExpiration`, `paymentMethodId`, `overPaid`, `manuallyMarked`, `partiallyPaid`. Source: same swagger — [VERIFIED]
+- Signature: `BTCPay-Sig` header = `sha256=HMAC256(UTF8(webhook secret), rawBody)` (GitHub-style). Source: same swagger — [VERIFIED]
+- Redelivery: if "automatic redelivery" is enabled on the webhook, BTCPay retries failed deliveries "after 10 seconds, 1 minute and up to 6 times after 10 minutes". Manual redelivery endpoint exists; deliveries are listable/inspectable. Source: same swagger — [VERIFIED]
+- Endpoint paths (current master swagger): create/list at `/api/v1/stores/{storeId}/webhooks`; per-webhook operations at `/api/v1/webhooks/{webhookId}`, deliveries at `/api/v1/webhooks/{webhookId}/deliveries/{deliveryId}` and `.../redeliver` — the per-webhook paths are **no longer store-scoped** in current master. Older deployed BTCPay versions used `/api/v1/stores/{storeId}/webhooks/{webhookId}`; pin behavior to the BTCPay version you deploy. Source: same swagger — [VERIFIED] (version-dependence caveat)
+- Important design consequence: redelivery is finite (~8 attempts over ~1 hour). If our API is down longer, deposits are lost unless we reconcile — plan a periodic poll of `GET .../invoices` as a safety net.
+
+## 3. Payouts / pull payments / payout processors
+
+- Endpoints: `POST /api/v1/stores/{storeId}/pull-payments` (create pull payment; `autoApproveClaims` flag); `POST /api/v1/pull-payments/{pullPaymentId}/payouts` (claim); `POST /api/v1/stores/{storeId}/payouts` (direct store-level payout creation, supports auto-approval — this is the one our withdrawal flow should use); `POST /api/v1/payouts/{payoutId}` (approve); `POST /api/v1/payouts/{payoutId}/mark-paid`; `DELETE /api/v1/payouts/{payoutId}` (cancel). Payout states: `AwaitingApproval, AwaitingPayment, InProgress, Completed, Cancelled`. Source: https://raw.githubusercontent.com/btcpayserver/btcpayserver/master/BTCPayServer/wwwroot/swagger/v1/swagger.template.pull-payments.json — [VERIFIED]
+- Payout processors: background services that actually broadcast approved payouts. On-chain BTC automation is fully configurable via Greenfield: `GET/PUT /api/v1/stores/{storeId}/payout-processors/OnChainAutomatedPayoutSenderFactory/{paymentMethodId}` with fields `intervalSeconds`, `feeTargetBlock`, `threshold`, `processNewPayoutsInstantly`. Lightning equivalent exists (`LightningAutomatedPayoutSenderFactory`). Requires the store wallet to be a hot wallet. Source: https://raw.githubusercontent.com/btcpayserver/btcpayserver/master/BTCPayServer/wwwroot/swagger/v1/swagger.template.payout-processors.json — [VERIFIED] (hot-wallet requirement: [UNVERIFIED] from docs but architecturally necessary)
+- So yes: **on-chain BTC withdrawals can be fully automated** — create payout (auto-approved) → on-chain automated payout processor batches and broadcasts. [VERIFIED]
+- Network fees: the processor pays the mining fee from the store wallet (fee rate from `feeTargetBlock`); the payout `amount` is what the destination receives. The "subtract fees from the amount" toggle documented for refunds is a UI/refund-flow concept (https://docs.btcpayserver.org/Payouts/, https://docs.btcpayserver.org/Refund/). **Our API must compute `user_amount - estimated_fee` itself if fees are to come out of the user's balance** — Greenfield payout creation has no "deduct network fee from amount" field. [VERIFIED for absence of the field; fee-from-wallet behavior VERIFIED at design level]
+- Note: https://docs.btcpayserver.org/Payouts/ itself is stale (still says automation is "a future release") — trust the swagger + the 1.5.0 release notes (https://blog.btcpayserver.org/btcpay-server-1-5-0/) over that page.
+
+## 4. USDt plugin (BTCPayServer.Plugins.USDt) — THE CRITICAL ONE
+
+- Repo moved/lives at **github.com/btcpayserver-tether/BTCPayServer.Plugins.USDt** and now supports USDt on **TRON, Ethereum, and Polygon** (not TRON-only). Source: https://github.com/btcpayserver-tether/BTCPayServer.Plugins.USDt — [VERIFIED]
+- Invoices/deposits: YES, supported — invoice generation, blockchain monitoring, automatic settlement. [VERIFIED]
+- Address model: **NOT HD-derived unique addresses.** `TronUSDtLikePaymentMethodHandler` calls `GetOneNotReservedAddress(...)`: the merchant pre-configures a **pool of TRON addresses**, and each invoice reserves one currently-unreserved address, released after settlement/expiry. Consequences: (a) concurrent USDT invoices are limited by pool size; (b) addresses are reused across invoices/users over time, so a "permanent per-user TRON deposit address" is impossible and payment attribution depends on the invoice window. Source: https://github.com/btcpayserver-tether/BTCPayServer.Plugins.USDt/blob/master/BTCPayServer.Plugins.USDt/Services/Payments/TronUSDtLikePaymentMethodHandler.cs — [VERIFIED]
+- Payouts: **NOT SUPPORTED.** The full repository tree contains no payout handler, no pull-payment integration, no payout processor for any chain; the README describes receiving only; an issue search for "payout" returns zero results. BTCPay's payout system requires the payment method to register a payout handler, which this plugin does not do. **USDT withdrawals cannot go through BTCPay at all — not even manually via the payouts UI.** They must be implemented outside BTCPay (e.g., our own TRON signing via tronpy + TronGrid, or manual ops runbook). Sources: repo tree via https://api.github.com/repos/btcpayserver-tether/BTCPayServer.Plugins.USDt/git/trees/master?recursive=1, https://github.com/btcpayserver-tether/BTCPayServer.Plugins.USDt/issues?q=payout — [VERIFIED by code inspection]
+- TronGrid config: default JSON-RPC endpoint is `https://api.trongrid.io/jsonrpc` (mainnet) and `https://nile.trongrid.io/jsonrpc` (Nile testnet); overridable via settings keys (`*_JSONRPC_URI`, `*_SMARTCONTRACT_ADDRESS`). Source: https://github.com/btcpayserver-tether/BTCPayServer.Plugins.USDt/blob/master/BTCPayServer.Plugins.USDt/Configuration/USDtConfigurationProvider.cs — [VERIFIED]
+- TronGrid free tier: with an API key, 100K requests/day at 15 QPS; exceeding the daily quota drops you to 5 QPS; violations return 429 and can trigger a 30s 403 block; without an API key, rate is dynamically throttled (and TronGrid has been progressively reducing keyless QPS). Sources: https://developers.tron.network/reference/rate-limits, https://trongrid.zendesk.com/hc/en-us/articles/18574394281753 — [VERIFIED]
+
+## 5. Local dev (regtest)
+
+- btcpayserver-docker generator supports regtest: `export NBITCOIN_NETWORK="regtest"`, `BTCPAYGEN_CRYPTO1="btc"`, optional `BTCPAYGEN_LIGHTNING`; a `bitcoin-cli.sh` wrapper gives node RPC access, so regtest blocks are mined with `./bitcoin-cli.sh generatetoaddress N <addr>` (or `-generate`). Source: https://github.com/btcpayserver/btcpayserver-docker (README) — [VERIFIED] (the exact generatetoaddress invocation: [UNVERIFIED], standard bitcoind RPC)
+- A lighter option is the dev docker-compose inside the btcpayserver repo (BTCPayServer.Tests) used by core developers — [UNVERIFIED, not checked this pass]
+- USDt plugin local testing: there is **no TRON regtest**; the plugin ships built-in **Nile testnet** support (public testnet, `https://nile.trongrid.io/jsonrpc`). Shasta is not preconfigured (a custom JSON-RPC URI could be pointed at it, but Nile is the supported path). So the docker regtest stack covers BTC end-to-end only; USDT flows need Nile + faucet TRX/USDT over the network. Source: USDtConfigurationProvider.cs (above) — [VERIFIED]
+
+## 6. Python clients
+
+- The official `btcpayserver/btcpay-python` targets the **legacy BitPay-compatible API**, not Greenfield. Source: https://github.com/btcpayserver/btcpay-python — [VERIFIED]
+- There is no official, maintained Python Greenfield SDK; official docs (https://docs.btcpayserver.org/CustomIntegration/) point at direct Greenfield HTTP usage. A third-party `btcpay-python-sdk` exists on PyPI (updated 2025) but is unofficial. Recommendation stands: **plain httpx with a thin typed wrapper**. — [VERIFIED for absence of official SDK; third-party quality UNVERIFIED]
+
+## 7. API key scopes
+
+- Create invoices: `btcpay.store.cancreateinvoice`; view invoices: `btcpay.store.canviewinvoices` (invoices swagger) — [VERIFIED]
+- Webhook management (all webhook CRUD + deliveries): `btcpay.store.webhooks.canmodifywebhooks` (webhooks swagger) — [VERIFIED]
+- Pull payments/payouts: `btcpay.store.canmanagepullpayments` (manage incl. approve/cancel), `btcpay.store.cancreatepullpayments`, `btcpay.store.cancreatenonapprovedpullpayments`, `btcpay.store.canarchivepullpayments` (pull-payments swagger) — [VERIFIED]
+- Payout processor config: GET documented under `btcpay.store.canviewstoresettings`; PUT presumably `btcpay.store.canmodifystoresettings` (the fetch reported view-scope for both, which is suspect) — [UNVERIFIED for PUT; check swagger during implementation]
+- A dedicated `btcpay.store.canmanagepayouts` scope for `POST /api/v1/stores/{storeId}/payouts` was not confirmed this pass — [UNVERIFIED; confirm against deployed version's permission list]
+
+## Corrections to the brief
+
+1. **USDT withdrawals via BTCPay are impossible, not just non-automated.** The brief says "Withdrawals: Greenfield payouts" for both assets. That holds for BTC only. The USDt plugin has no payout handler of any kind — USDT-TRC20 withdrawals must be built outside BTCPay (own TRON hot wallet + tronpy/TronGrid signing, or manual process). This changes the architecture: the withdrawal module needs a per-asset backend abstraction (BTCPay payouts for BTC; native TRON sender for USDT).
+2. **No permanent per-user deposit addresses.** Neither BTC (no-address-reuse by design, invoices expire) nor USDT (shared address pool, addresses reused across invoices) supports a stable per-user address. Deposit UX must be "request a deposit → get a fresh invoice/address valid for N minutes", with `afterExpiration`/`paidLate` webhook handling and periodic invoice reconciliation.
+3. **USDT invoice concurrency is bounded by a manually configured TRON address pool** — an ops constraint the brief doesn't mention (pool must be provisioned and sized; TRX gas needed stays true).
+4. **Webhook redelivery is finite** (~retries over ~1 hour when enabled) — the brief's webhook-driven crediting needs a polling reconciliation fallback for outages.
+5. **Network-fee deduction from the user's amount is our job, not BTCPay's** — Greenfield payout creation has no fee-deduction field; BTCPay pays miner fees from the store hot wallet on top of the payout amount.
+6. Minor: webhook per-item endpoints in current master are `/api/v1/webhooks/{webhookId}` (not store-scoped) — pin the BTCPay version and match its swagger.
+
+### Critical Files for Implementation
+(No repository exists yet; these are the planned files this research most directly shapes.)
+- E:\codespace\_claude_code\_swift-punk-projects\crypto-processing-api\app\gateways\btcpay_client.py (httpx Greenfield wrapper: invoices, payouts, webhooks)
+- E:\codespace\_claude_code\_swift-punk-projects\crypto-processing-api\app\gateways\tron_sender.py (native USDT-TRC20 withdrawal sender — required because the USDt plugin has no payouts)
+- E:\codespace\_claude_code\_swift-punk-projects\crypto-processing-api\app\webhooks\btcpay_webhook.py (BTCPay-Sig HMAC verification, event handling, idempotent crediting)
+- E:\codespace\_claude_code\_swift-punk-projects\crypto-processing-api\app\services\reconciliation.py (invoice polling fallback for missed webhook deliveries)
+- E:\codespace\_claude_code\_swift-punk-projects\crypto-processing-api\docker-compose.regtest.yml (BTCPay + bitcoind regtest stack; USDT tested against Nile, not locally)
