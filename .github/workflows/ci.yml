@@ -72,6 +72,9 @@ jobs:
       # The service container publishes on the standard port; the local
       # compose file uses 54329 to stay out of a developer's way.
       TEST_DATABASE_URL: postgresql+psycopg://cpapi:cpapi@localhost:5432/cpapi_test
+      # Derandomized and small. A pull request must not go red on someone
+      # else's luck; the wide random search is the nightly job's problem.
+      HYPOTHESIS_PROFILE: ci
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -86,6 +89,74 @@ jobs:
           --cov=src/crypto_processing_api/ledger
           --cov-report=term-missing
           --cov-fail-under=85
+      # A property failure is a sequence of steps, and the sequence lives in
+      # this directory. Without it the log says a counterexample was found and
+      # gives you no way to run it again.
+      - name: Keep the failing counterexample
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hypothesis-examples
+          path: .hypothesis/
+          if-no-files-found: ignore
+
+  migration-checks:
+    name: migration checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cpapi
+          POSTGRES_PASSWORD: cpapi
+          POSTGRES_DB: cpapi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cpapi -d cpapi_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://cpapi:cpapi@localhost:5432/cpapi_test
+      ENVIRONMENT: test
+      BITCOIN_NETWORK: regtest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Deliberately the command line, not the test that wraps it. The tests
+      # inject their target with `-x db_url=`; only this exercises the path an
+      # operator actually uses, where env.py resolves DATABASE_URL itself.
+      - name: The migrations must reach head
+        run: alembic upgrade head
+      - name: The models and the migrations must agree
+        run: alembic check
+      - name: There must be exactly one head
+        run: |
+          count=$(alembic heads | grep -c .)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected 1 migration head, found $count"
+            alembic heads
+            exit 1
+          fi
+
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    container:
+      # Pinned exactly. A scanner that silently changes its rules between runs
+      # turns a green build into an unfalsifiable claim.
+      image: semgrep/semgrep:1.172.0
+    steps:
+      - uses: actions/checkout@v5
+      # `p/python` is the registry's general Python suite; `.semgrep/` holds the
+      # architecture rules specific to this codebase. `--error` is what makes a
+      # finding fail the build rather than decorate a log nobody opens.
+      - run: semgrep scan --config .semgrep/ --config p/python --error --metrics=off
 
   secrets:
     name: gitleaks

@@ -92,6 +92,37 @@ Specifically:
 - Prefer editing an existing module over adding one. The file tree is in
   `docs/design/05-merged-plan.md` §6 and deviations from it get explained.
 
+## Migrations
+
+A migration is the one change that runs against somebody's real data, once,
+unattended. Two rules follow from that.
+
+**Downgrade must undo upgrade exactly.** `tests/integration/test_migration_roundtrip.py`
+migrates up, fingerprints the schema, goes down to base, comes back up and
+demands the identical fingerprint. If your downgrade is a stub, that test is
+where it stops being your problem and starts being everyone's.
+
+**Keep the models honest.** `alembic check` runs in CI. Hand-written DDL is
+fine — much of `0001` is — but whatever it creates has to be mirrored in
+`ledger/models.py`, including indexes. Nothing here calls `create_all`, so the
+metadata emits no DDL and drift is invisible until something like this looks
+for it.
+
+### Release checklist
+
+**Every release adds a frozen database dump.** After tagging `vX.Y.Z`:
+
+```
+docker compose -f deploy/docker-compose.test.yml up -d
+python scripts/make_upgrade_fixture.py --version X.Y.Z
+```
+
+That writes `tests/fixtures/upgrade/vX.Y.Z.sql`. Commit it and **never edit it
+again** — its whole value is being a real database from that version, which a
+file anyone has touched is not. From then on every future migration must be
+able to upgrade it, which is what catches the migration that is correct on
+empty tables and wrong on data.
+
 ## Commit messages
 
 Explain **why**, not what — the diff already says what. Look at
