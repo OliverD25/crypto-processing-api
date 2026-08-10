@@ -32,7 +32,7 @@ git clone https://github.com/OliverD25/crypto-processing-api && cd crypto-proces
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 docker compose -f deploy/docker-compose.test.yml up -d   # test database
-pytest                                                    # 537 tests
+pytest                                                    # 569 tests
 
 docker compose -f deploy/docker-compose.regtest.yml up -d # bitcoind, BTCPay, api, worker
 python scripts/bootstrap_btcpay.py                        # configure BTCPay
