@@ -84,9 +84,11 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           # Everything between this version's heading and the next one.
+          # index() instead of a regex: "[0.1.0]" inside a dynamic regex is a
+          # character class, so the heading never matches.
           awk -v v="$VERSION" '
-            $0 ~ "^## \[" v "\]" {found=1; next}
-            found && /^## \[/ {exit}
+            index($0, "## [" v "]") == 1 {found=1; next}
+            found && index($0, "## [") == 1 {exit}
             found {print}
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then

@@ -104,6 +104,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The suite imports "tests.fakes" etc.; an editable install happens to put the
+# repo root on sys.path, a plain "pip install" (CI) does not.
+pythonpath = ["."]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: needs a real PostgreSQL instance (deploy/docker-compose.test.yml)",
