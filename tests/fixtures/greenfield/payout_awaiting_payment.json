@@ -1,0 +1,18 @@
+{
+  "date": 1786392196,
+  "destination": "bcrt1q3xnyqhtgey04knxyqcukl95zcp8u6sveh9mf4x",
+  "id": "qDmpNjj7ygNQkYVmwCWR7oLCFff",
+  "metadata": {
+    "cpapi": true,
+    "source": "fixture-capture"
+  },
+  "originalAmount": "0.0005",
+  "originalCurrency": "BTC",
+  "paymentProof": null,
+  "payoutAmount": "0.0005",
+  "payoutCurrency": "BTC",
+  "payoutMethodId": "BTC-CHAIN",
+  "pullPaymentId": null,
+  "revision": 0,
+  "state": "AwaitingPayment"
+}

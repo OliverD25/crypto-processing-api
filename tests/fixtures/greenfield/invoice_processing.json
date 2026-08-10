@@ -1,0 +1,46 @@
+{
+  "additionalStatus": "None",
+  "amount": "0.40",
+  "archived": false,
+  "availableStatusesForManualMarking": [
+    "Settled",
+    "Invalid"
+  ],
+  "checkout": {
+    "defaultLanguage": null,
+    "defaultPaymentMethod": "BTC-CHAIN",
+    "expirationMinutes": 2,
+    "lazyPaymentMethods": null,
+    "monitoringMinutes": 1440,
+    "paymentMethods": [
+      "BTC-CHAIN"
+    ],
+    "paymentTolerance": 0.0,
+    "redirectAutomatically": false,
+    "redirectURL": null,
+    "speedPolicy": "MediumSpeed"
+  },
+  "checkoutLink": "http://127.0.0.1:14142/i/C3fak1DxpFGy1QUykDdVxp",
+  "createdTime": 1786392178,
+  "currency": "BTC",
+  "expirationTime": 1786392298,
+  "id": "C3fak1DxpFGy1QUykDdVxp",
+  "metadata": {
+    "asset": "BTC",
+    "cpapi": true,
+    "cpapi_version": 1,
+    "deposit_id": "019fed45-6f5c-71b3-a8bd-250d7f2ed514",
+    "external_user_id": "capture-user"
+  },
+  "monitoringExpiration": 1786478698,
+  "paidAmount": "0.40",
+  "paymentMethods": [],
+  "receipt": {
+    "enabled": true,
+    "showPayments": true,
+    "showQR": true
+  },
+  "status": "Processing",
+  "storeId": "HNh6mygYFsCpzyT3KerBqmkJU5Fd16BUEkMT3dpg9rTK",
+  "type": "TopUp"
+}

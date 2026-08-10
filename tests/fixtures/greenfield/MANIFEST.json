@@ -1,0 +1,19 @@
+{
+  "btcpay_version": "2.4.2",
+  "captured_by": "scripts/dev/capture_greenfield.py",
+  "files": [
+    "invoice_new",
+    "invoice_payment_methods_new",
+    "invoice_payment_methods_settled",
+    "invoice_processing",
+    "invoice_settled",
+    "payout_awaiting_approval",
+    "payout_awaiting_payment",
+    "payout_cancelled",
+    "payout_completed",
+    "payout_in_progress",
+    "payout_list"
+  ],
+  "source": "regtest stack, deploy/docker-compose.regtest.yml",
+  "why": "Real Greenfield bodies, so the normalizer can be asserted against BTCPay rather than against FakeBTCPay. See the module docstring."
+}

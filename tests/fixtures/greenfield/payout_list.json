@@ -1,0 +1,113 @@
+[
+  {
+    "date": 1786392117,
+    "destination": "bcrt1qgl0aqwc4ugupq5z3kp4uhnl4kjzwuzvn7mnlvs",
+    "id": "mMZfNuumKHnefJRnDJNt91Sw9ca",
+    "metadata": {
+      "cpapi": true,
+      "cpapi_version": 1,
+      "external_user_id": "capture-user",
+      "source": "crypto-processing-api",
+      "withdrawal_id": "019fed44-699e-7a22-be29-4dee0f468f37"
+    },
+    "originalAmount": "0.00270000",
+    "originalCurrency": "BTC",
+    "paymentProof": {
+      "Accounted": true,
+      "ProofType": "PayoutTransactionOnChainBlob",
+      "TransactionId": "70194ec42b3c556329d48ecb2af475499e09febb53f643dbff9a51f80b79387b"
+    },
+    "payoutAmount": "0.0027",
+    "payoutCurrency": "BTC",
+    "payoutMethodId": "BTC-CHAIN",
+    "pullPaymentId": null,
+    "revision": 0,
+    "state": "Completed"
+  },
+  {
+    "date": 1786392126,
+    "destination": "bcrt1qh68ysf4g9fwxzqjjd5axu6ekuw7ygwh6uadznu",
+    "id": "2fgEangHSjcBznPKffmYbXe5txnT",
+    "metadata": {
+      "cpapi": true,
+      "source": "fixture-capture"
+    },
+    "originalAmount": "0.001",
+    "originalCurrency": "BTC",
+    "paymentProof": null,
+    "payoutAmount": null,
+    "payoutCurrency": "BTC",
+    "payoutMethodId": "BTC-CHAIN",
+    "pullPaymentId": null,
+    "revision": 0,
+    "state": "Cancelled"
+  },
+  {
+    "date": 1786392188,
+    "destination": "bcrt1qxrgzn7plyqhfe8arak8jmlsqyel2xdsy0dmgzw",
+    "id": "mbHNKcsFicNr9rfZY28RgJS3MDS",
+    "metadata": {
+      "cpapi": true,
+      "cpapi_version": 1,
+      "external_user_id": "capture-user",
+      "source": "crypto-processing-api",
+      "withdrawal_id": "019fed45-9286-711f-8438-609559411b2a"
+    },
+    "originalAmount": "0.00270000",
+    "originalCurrency": "BTC",
+    "paymentProof": {
+      "Accounted": true,
+      "ProofType": "PayoutTransactionOnChainBlob",
+      "TransactionId": "936cf76c2eae1826a6e7638d1d48c528df4a5d70021c9124bdd83ba8e569e60c"
+    },
+    "payoutAmount": "0.0027",
+    "payoutCurrency": "BTC",
+    "payoutMethodId": "BTC-CHAIN",
+    "pullPaymentId": null,
+    "revision": 0,
+    "state": "Completed"
+  },
+  {
+    "date": 1786392196,
+    "destination": "bcrt1q3xnyqhtgey04knxyqcukl95zcp8u6sveh9mf4x",
+    "id": "qDmpNjj7ygNQkYVmwCWR7oLCFff",
+    "metadata": {
+      "cpapi": true,
+      "source": "fixture-capture"
+    },
+    "originalAmount": "0.0005",
+    "originalCurrency": "BTC",
+    "paymentProof": {
+      "Accounted": true,
+      "Candidates": [
+        "73924785fc6a716484e3da7cb1c20d7b1098db005a86eba4283ce001897cff55"
+      ],
+      "ProofType": "PayoutTransactionOnChainBlob",
+      "TransactionId": "73924785fc6a716484e3da7cb1c20d7b1098db005a86eba4283ce001897cff55"
+    },
+    "payoutAmount": "0.0005",
+    "payoutCurrency": "BTC",
+    "payoutMethodId": "BTC-CHAIN",
+    "pullPaymentId": null,
+    "revision": 0,
+    "state": "InProgress"
+  },
+  {
+    "date": 1786392197,
+    "destination": "bcrt1qqk557442fssa4fxytlsa8acrvczqj4xn3geqje",
+    "id": "2DdJK6gPDnrUSrRnPrAqqaS6UWMv",
+    "metadata": {
+      "cpapi": true,
+      "source": "fixture-capture"
+    },
+    "originalAmount": "0.001",
+    "originalCurrency": "BTC",
+    "paymentProof": null,
+    "payoutAmount": null,
+    "payoutCurrency": "BTC",
+    "payoutMethodId": "BTC-CHAIN",
+    "pullPaymentId": null,
+    "revision": 0,
+    "state": "Cancelled"
+  }
+]

@@ -1,0 +1,25 @@
+{
+  "date": 1786392188,
+  "destination": "bcrt1qxrgzn7plyqhfe8arak8jmlsqyel2xdsy0dmgzw",
+  "id": "mbHNKcsFicNr9rfZY28RgJS3MDS",
+  "metadata": {
+    "cpapi": true,
+    "cpapi_version": 1,
+    "external_user_id": "capture-user",
+    "source": "crypto-processing-api",
+    "withdrawal_id": "019fed45-9286-711f-8438-609559411b2a"
+  },
+  "originalAmount": "0.00270000",
+  "originalCurrency": "BTC",
+  "paymentProof": {
+    "Accounted": true,
+    "ProofType": "PayoutTransactionOnChainBlob",
+    "TransactionId": "936cf76c2eae1826a6e7638d1d48c528df4a5d70021c9124bdd83ba8e569e60c"
+  },
+  "payoutAmount": "0.0027",
+  "payoutCurrency": "BTC",
+  "payoutMethodId": "BTC-CHAIN",
+  "pullPaymentId": null,
+  "revision": 0,
+  "state": "Completed"
+}
