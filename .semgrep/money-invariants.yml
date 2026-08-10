@@ -1,0 +1,115 @@
+# Architecture conformance rules for the money path.
+#
+# These are not generic CVE patterns — the registry's `p/python` covers that.
+# What is here mechanizes rules this codebase states in prose and then relies on
+# reviewers to remember. A docstring saying "the only module allowed to write
+# postings" is a hope; this is a build failure.
+#
+# Every rule below is tuned to fire zero times on correct code. A rule that
+# reports thirty findings a reviewer has to dismiss is a rule that gets switched
+# off, and then the one real finding arrives to an audience of nobody.
+#
+# Run:  semgrep scan --config .semgrep/ --config p/python --error
+
+rules:
+  # -------------------------------------------------------------------------
+  - id: postings-writer
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Journal rows may only be written by ledger/service.py. A second writer
+      can bypass the zero-sum assertion, the ascending lock order and the
+      materialized-balance update all at once. Call post_entry() instead.
+    # The patterns match CONSTRUCTION and INSERTION only. Reading is never
+    # matched, which is why services/withdrawals.py keeps doing
+    # `select(Posting.amount)` in _committed_from_entry with no path exclusion
+    # — the rule tells writes from reads by shape, so there is no blanket
+    # per-file carve-out for anyone to quietly widen later.
+    patterns:
+      - pattern-either:
+          - pattern: Posting(...)
+          - pattern: JournalEntry(...)
+          - pattern: insert(Posting)
+          - pattern: insert(JournalEntry)
+          - pattern: pg_insert(Posting)
+          - pattern: pg_insert(JournalEntry)
+          - pattern: update(Posting)
+          - pattern: update(JournalEntry)
+          - pattern: delete(Posting)
+          - pattern: delete(JournalEntry)
+    paths:
+      include:
+        - /src/crypto_processing_api/**
+      exclude:
+        # The designated writer. One exclusion, naming the module the docstring
+        # names, and it is the whole point of the rule.
+        - /src/crypto_processing_api/ledger/service.py
+
+  # -------------------------------------------------------------------------
+  - id: no-interpolated-sql-in-money-path
+    languages: [python]
+    severity: ERROR
+    message: >-
+      SQL built by interpolation in the money path. docs/security.md calls SQL
+      injection "a review problem"; this makes it a build problem. A literal
+      string with bound parameters is fine — an f-string, a concatenation or a
+      .format() is not, whatever the value looks like today.
+    # Deliberately not "no text() at all": the advisory-lock statements in
+    # workers/runner.py are literals with bound parameters and carry no risk.
+    # Banning them too would produce thirty dismissals a week and one ignored
+    # real finding.
+    patterns:
+      - pattern-either:
+          - pattern: text($ARG)
+          - pattern: $SESSION.exec_driver_sql($ARG, ...)
+      - pattern-not: text("...")
+      - pattern-not: $SESSION.exec_driver_sql("...", ...)
+    paths:
+      include:
+        - /src/crypto_processing_api/ledger/**
+        - /src/crypto_processing_api/services/**
+        - /src/crypto_processing_api/workers/**
+
+  # -------------------------------------------------------------------------
+  - id: no-float-amounts
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Amounts are integers of the asset's smallest unit. float() here is a
+      rounding error with a user's money in it — 0.1 + 0.2 is not 0.3, and
+      21 million BTC in satoshis is past where a float stays exact. Convert
+      decimal strings with core/amounts.to_units().
+    # Scoped to names containing `amount` or `balance` rather than banning
+    # float() outright, because rates and intervals legitimately are floats:
+    # sat/vB, Retry-After seconds, the USDT tolerance percentage.
+    patterns:
+      - pattern-either:
+          - pattern: $AMOUNT = float(...)
+          - pattern: $OBJ.$AMOUNT = float(...)
+      - metavariable-regex:
+          metavariable: $AMOUNT
+          regex: (?i).*(amount|balance).*
+    paths:
+      include:
+        - /src/crypto_processing_api/**
+
+  # -------------------------------------------------------------------------
+  - id: no-float-literal-amounts
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A float literal assigned to an amount. Amounts are integers of the
+      smallest unit; a decimal here means the units are wrong somewhere.
+    patterns:
+      - pattern-either:
+          - pattern: $AMOUNT = $FLOATLIT
+          - pattern: $OBJ.$AMOUNT = $FLOATLIT
+      - metavariable-regex:
+          metavariable: $AMOUNT
+          regex: (?i).*(amount|balance).*
+      - metavariable-regex:
+          metavariable: $FLOATLIT
+          regex: ^-?[0-9]+\.[0-9]+$
+    paths:
+      include:
+        - /src/crypto_processing_api/**
