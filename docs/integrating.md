@@ -3,9 +3,9 @@
 For developers of the platform backend that calls this service. It assumes
 nothing about your stack beyond HTTP and JSON.
 
-> **Status: M3.** Deposits and BTC withdrawals work end to end. USDT arrives in
-> M4, outbound webhooks in M5. Endpoints described here are stable; anything not
-> described here does not exist yet.
+> **Status: M4.** Deposits and withdrawals work for BTC and USDT-TRC20.
+> Outbound webhooks arrive in M5. Endpoints described here are stable; anything
+> not described here does not exist yet.
 
 ## The one rule
 
@@ -189,6 +189,55 @@ exactly once. `amount_credited` on the deposit is their sum.
 
 `credited: false` means the money is visible but not yet in the balance —
 either awaiting confirmations or waiting in the review queue.
+
+## Balances and history
+
+```http
+GET /v1/users/{external_user_id}/balances
+GET /v1/users/{external_user_id}/transactions?asset=BTC&limit=50&cursor=<posting_id>
+GET /v1/assets
+```
+
+```json
+{
+  "balances": [
+    {"asset": "BTC", "available": "0.49600000", "held": "0.00400000",
+     "total": "0.50000000"}
+  ]
+}
+```
+
+`available` is what a withdrawal can use. `held` is reserved by a withdrawal in
+flight. They are separate accounts in the ledger, not a subtraction, so they
+cannot disagree.
+
+`GET /v1/assets` is the reference data to build your UI from — decimals, limits
+and fees per asset, and whether the asset is currently enabled. Read it rather
+than hardcoding, because an operator can change a limit without a deployment.
+
+## USDT-TRC20
+
+Same endpoints, same semantics, three differences that matter.
+
+**Every USDT withdrawal waits for an operator.** Not because of the amount —
+the BTCPay plugin this service uses cannot send USDT at all, so a human does
+it. Expect `pending_approval` on every request and a slower turnaround than BTC.
+`fee` is a flat service fee covering TRX gas rather than a network estimate.
+
+**Deposit addresses are shared, not just single-use.** They come from a pool and
+are reused across users over time. Two consequences for you:
+
+- a deposit request can answer `503` with
+  `{"code": "DEPOSIT_TEMPORARILY_UNAVAILABLE"}` when every address in the pool
+  is busy. It is retryable and carries `Retry-After`.
+- **send `expected_amount` when you know it.** For USDT it is not just display:
+  a payment far from the expected amount is routed to an operator instead of
+  being credited automatically, which is what stops one user's late payment
+  being credited to another. Without it there is nothing to compare against.
+
+**Destination addresses are TRON base58check (`T...`).** An Ethereum-style
+`0x...` address is refused with `422` — USDT exists on Ethereum and Polygon too,
+and that mistake cannot be undone.
 
 ## Truth, and why polling is part of it
 

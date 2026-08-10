@@ -455,9 +455,19 @@ def drill_withdraw(api: Api) -> None:
     ledger_before = api.ledger_balances("wd-user")
 
     created = api.create_withdrawal("wd-user", withdraw_sats, destination, f"w-{time.time()}")
-    if created["status"] != "approved":
-        raise SmokeFailure(f"expected auto-approval, got {created['status']}")
-    log(f"  withdrawal {created['withdrawal_id']} auto-approved")
+    if created["status"] == "approved":
+        log(f"  withdrawal {created['withdrawal_id']} auto-approved")
+    elif "24h cap" in (created.get("approval_reason") or ""):
+        # Expected when the drill has been run several times today: the rolling
+        # cap is per asset, not per run, and tripping it is the control doing
+        # its job. Approve and carry on — the assertions that matter are about
+        # amounts.
+        log(f"  24h cap reached from earlier runs ({created['approval_reason']}); approving")
+        api.approve(created["withdrawal_id"])
+    else:
+        raise SmokeFailure(
+            f"expected auto-approval, got {created['status']}: {created.get('approval_reason')}"
+        )
 
     # The payout has to be mined before BTCPay will call it Completed, and the
     # regtest chain only moves when we tell it to.
