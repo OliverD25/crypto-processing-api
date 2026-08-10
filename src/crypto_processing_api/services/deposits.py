@@ -512,6 +512,21 @@ def apply_invoice_state(
             result.credited_payments.append(payment_id)
             result.credited_units += row.amount
 
+    # Review means "money arrived and nobody has decided about it". Once an
+    # admin has credited every recorded payment there is nothing left to
+    # decide, and without this the sweep would push a resolved late payment
+    # straight back into the queue on its next pass — the invoice is still
+    # Expired, so the mapping alone never stops saying `review`.
+    if target == DepositStatus.REVIEW and deposit.status == DepositStatus.SETTLED:
+        uncredited = session.execute(
+            select(DepositPayment.id).where(
+                DepositPayment.deposit_id == deposit.id,
+                DepositPayment.credited_at.is_(None),
+            )
+        ).first()
+        if uncredited is None:
+            target = DepositStatus.SETTLED
+
     if target != deposit.status and target in _ALLOWED_TARGETS[deposit.status]:
         logger.info(
             "deposit.transition",

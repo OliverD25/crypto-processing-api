@@ -552,3 +552,81 @@ def test_unparseable_payment_amount_goes_to_review(
     assert session.execute(select(Deposit)).scalar_one().status == DepositStatus.REVIEW
     assert available_balance(session, "weird") == 0
     assert session.execute(select(func.count()).select_from(JournalEntry)).scalar_one() == 0
+
+
+def test_a_resolved_late_payment_does_not_return_to_review(
+    client: TestClient,
+    fake_btcpay: FakeBTCPay,
+    session_factory: sessionmaker[Session],
+    session: Session,
+    readwrite_key: str,
+    admin_key: str,
+) -> None:
+    """Found on regtest: the sweep undid an admin's decision.
+
+    The invoice stays Expired forever, so the status mapping keeps saying
+    review. Without a check for uncredited payments the queue would refill with
+    items a human had already cleared.
+    """
+    deposit = create_deposit(client, readwrite_key, user="resolved-late")
+    invoice_id = next(iter(fake_btcpay.invoices))
+    payment_id = fake_btcpay.add_payment(invoice_id, HALF_BTC)
+    fake_btcpay.expire(invoice_id, additional_status="PaidLate")
+    post_webhook(client, fake_btcpay, fake_btcpay.webhook_payload("InvoiceExpired", invoice_id))
+    drain(session_factory, fake_btcpay)
+
+    client.post(
+        f"/v1/admin/deposits/{deposit['deposit_id']}/resolve",
+        json={"action": "credit", "payment_id": payment_id},
+        headers=bearer(admin_key),
+    )
+
+    # Two more sweeps, exactly as the worker would run them.
+    for _ in range(2):
+        with session_factory() as poll_session:
+            deposit_service.refresh_deposit(
+                poll_session, fake_btcpay, deposit_id=uuid.UUID(deposit["deposit_id"])
+            )
+            poll_session.commit()
+
+    body = client.get(f"/v1/deposits/{deposit['deposit_id']}", headers=bearer(readwrite_key)).json()
+    assert body["status"] == "settled"
+    assert body["amount_credited"] == HALF_BTC
+    assert (
+        client.get("/v1/admin/deposits/review", headers=bearer(admin_key)).json()["deposits"] == []
+    )
+    assert available_balance(session, "resolved-late") == HALF_BTC_SATS
+
+
+def test_a_new_late_payment_after_a_resolve_reopens_review(
+    client: TestClient,
+    fake_btcpay: FakeBTCPay,
+    session_factory: sessionmaker[Session],
+    session: Session,
+    readwrite_key: str,
+    admin_key: str,
+) -> None:
+    """The other half: money that nobody has decided about still needs a human."""
+    deposit = create_deposit(client, readwrite_key, user="twice-late")
+    invoice_id = next(iter(fake_btcpay.invoices))
+    first_payment = fake_btcpay.add_payment(invoice_id, HALF_BTC)
+    fake_btcpay.expire(invoice_id, additional_status="PaidLate")
+    post_webhook(client, fake_btcpay, fake_btcpay.webhook_payload("InvoiceExpired", invoice_id))
+    drain(session_factory, fake_btcpay)
+    client.post(
+        f"/v1/admin/deposits/{deposit['deposit_id']}/resolve",
+        json={"action": "credit", "payment_id": first_payment},
+        headers=bearer(admin_key),
+    )
+
+    fake_btcpay.add_payment(invoice_id, "0.10000000")
+    with session_factory() as poll_session:
+        deposit_service.refresh_deposit(
+            poll_session, fake_btcpay, deposit_id=uuid.UUID(deposit["deposit_id"])
+        )
+        poll_session.commit()
+
+    body = client.get(f"/v1/deposits/{deposit['deposit_id']}", headers=bearer(readwrite_key)).json()
+    assert body["status"] == "review"
+    assert body["amount_credited"] == HALF_BTC
+    assert available_balance(session, "twice-late") == HALF_BTC_SATS

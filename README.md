@@ -36,10 +36,13 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 docker compose -f deploy/docker-compose.test.yml up -d
 pytest
 
-# full BTC end-to-end stack: bitcoind regtest, NBXplorer, BTCPay, this API
+# full BTC end-to-end stack: bitcoind regtest, NBXplorer, BTCPay, api, worker
 docker compose -f deploy/docker-compose.regtest.yml up -d
 python scripts/bootstrap_btcpay.py
-sh scripts/dev/mine.sh 101
+docker compose -f deploy/docker-compose.regtest.yml up -d --force-recreate api worker
+
+# deposit, webhook-outage and replay drills against the real stack
+python scripts/dev/smoke_test.py
 ```
 
 `make help` lists the rest. Every configuration variable is documented in
@@ -51,6 +54,10 @@ The full architecture — verified BTCPay fact sheet, ledger design, integration
 design, security model, and the adversarial review it survived — lives in
 [`docs/design/`](docs/design/). Start with
 [`00-implementation-plan.md`](docs/design/00-implementation-plan.md).
+
+For platform developers: [`docs/integrating.md`](docs/integrating.md) — the
+deposit lifecycle, idempotency semantics, and why polling is part of the truth
+model rather than a fallback.
 
 Operations: [`docs/backups.md`](docs/backups.md) — continuous WAL archiving,
 the restore drill, and which records exist in this database and nowhere else.
