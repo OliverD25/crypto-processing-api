@@ -12,6 +12,7 @@ check.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -42,7 +43,12 @@ from crypto_processing_api.ledger.models import (
 from crypto_processing_api.services import asset_registry
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
-from crypto_processing_api.services.backends import ManualTronBackend, TronTxVerifier
+from crypto_processing_api.services.backends import (
+    BackendPayoutState,
+    ManualTronBackend,
+    ProvesDefinitiveFailure,
+    TronTxVerifier,
+)
 
 logger = get_logger(__name__)
 
@@ -431,6 +437,163 @@ def sweep_manual_withdrawals(
             if withdrawal_service.get(session, withdrawal_id).status != previous:
                 report.changed += 1
     return report
+
+
+@dataclass
+class TimeoutReport:
+    checked: int = 0
+    moved_on: int = 0
+    cancelled: int = 0
+    released: int = 0
+    needs_attestation: int = 0
+    errors: int = 0
+
+
+def cancel_timed_out_payouts(
+    session_factory: Callable[[], Session],
+    gateway: BTCPayGateway,
+    settings: Settings,
+    *,
+    limit: int = 20,
+) -> TimeoutReport:
+    """Give up on payouts the rail is never going to complete.
+
+    Only assets whose profile sets `submitted_timeout_seconds` are considered,
+    which today means Lightning and only Lightning. On chain there is no such
+    thing as a transaction that will not happen, and inventing a deadline for
+    one would be inventing a reason to abandon money in the mempool.
+
+    Cancelling is not the same as refunding, and the gap between them is the
+    point of this job. Cancelling stops BTCPay retrying and moves the row to
+    `failed`, which is safe because it says nothing about where the money is.
+    Refunding says the money is still ours, and that is only allowed when the
+    backend can prove it — `ProvesDefinitiveFailure`, which for Lightning means
+    the node has no settled or in-flight HTLC for the payment hash. Without
+    that proof the hold waits for a human with an attestation, exactly as it
+    did before, and an alert says so.
+    """
+    report = TimeoutReport()
+
+    with session_factory() as session:
+        registry = asset_registry.get_registry()
+        deadlines: list[tuple[str, int]] = []
+        for asset in session.execute(select(Asset).where(Asset.enabled.is_(True))).scalars():
+            profile = registry.get(asset.id)
+            if profile is None or profile.submitted_timeout_seconds is None:
+                continue
+            seconds = profile.submitted_timeout_seconds(settings)
+            if seconds is not None:
+                deadlines.append((asset.id, seconds))
+
+    for asset_id, seconds in deadlines:
+        with session_factory() as session:
+            due = withdrawal_service.timed_out_submissions(
+                session, asset_id=asset_id, older_than_seconds=seconds, limit=limit
+            )
+        for withdrawal_id in due:
+            report.checked += 1
+            _resolve_timed_out(session_factory, gateway, settings, withdrawal_id, report)
+
+    return report
+
+
+def _resolve_timed_out(
+    session_factory: Callable[[], Session],
+    gateway: BTCPayGateway,
+    settings: Settings,
+    withdrawal_id: uuid.UUID,
+    report: TimeoutReport,
+) -> None:
+    with session_factory() as session:
+        withdrawal = withdrawal_service.get(session, withdrawal_id)
+        asset = withdrawal_service.get_asset(session, withdrawal.asset_id, require_enabled=False)
+        backend_ref = withdrawal.backend_ref
+        if not backend_ref:
+            return
+        backend = asset_registry.automated_backend_for(asset, gateway=gateway, settings=settings)
+
+        try:
+            payout = backend.poll_status(backend_ref)
+        except BTCPayError as exc:
+            report.errors += 1
+            logger.warning("timeout.poll_failed", withdrawal_id=str(withdrawal_id), error=str(exc))
+            return
+
+        # It may have moved between the query and now — the deadline is long
+        # and a route can be found at the last second. Feed the fresh state
+        # through the ordinary path and leave it alone.
+        if payout.state is not BackendPayoutState.PENDING:
+            withdrawal_service.apply_payout_state(
+                session,
+                withdrawal_id=withdrawal_id,
+                payout=payout,
+                actual_wallet_fee=withdrawal_service.settlement_fee(
+                    backend, payout, settings=settings
+                ),
+            )
+            session.commit()
+            report.moved_on += 1
+            return
+
+        if not backend.cancel(backend_ref):
+            # BTCPay refuses once a payout is genuinely in flight, which is the
+            # answer we want: leave it alone and let the poller finish it.
+            report.errors += 1
+            logger.warning("timeout.cancel_refused", withdrawal_id=str(withdrawal_id))
+            return
+
+        try:
+            payout = backend.poll_status(backend_ref)
+        except BTCPayError as exc:
+            report.errors += 1
+            logger.warning(
+                "timeout.recheck_failed", withdrawal_id=str(withdrawal_id), error=str(exc)
+            )
+            return
+
+        withdrawal_service.apply_payout_state(session, withdrawal_id=withdrawal_id, payout=payout)
+        session.commit()
+        report.cancelled += 1
+        logger.info(
+            "timeout.cancelled",
+            withdrawal_id=str(withdrawal_id),
+            payout=backend_ref,
+            after_seconds=settings.ln_payout_timeout_seconds,
+        )
+
+    proof = (
+        backend.definitive_failure_proof(payout)
+        if isinstance(backend, ProvesDefinitiveFailure)
+        else None
+    )
+    if proof is None:
+        report.needs_attestation += 1
+        notify(
+            Severity.WARNING,
+            AlertCode.WITHDRAWAL_HOLD_NEEDS_ATTESTATION,
+            f"withdrawal {withdrawal_id} was cancelled after its deadline, but the rail "
+            "would not confirm the payment never left. The user's balance stays held "
+            "until an admin releases it with an attestation.",
+            settings=settings,
+            withdrawal_id=str(withdrawal_id),
+        )
+        return
+
+    with session_factory() as session:
+        withdrawal = withdrawal_service.lock(session, withdrawal_id)
+        if withdrawal.release_entry_id is not None:
+            return
+        withdrawal.failure_reason = (
+            withdrawal.failure_reason or "the payout was cancelled after its deadline"
+        )
+        withdrawal_service.auto_release_with_proof(
+            session,
+            withdrawal,
+            actor=withdrawal_service.ACTOR_DEFINITIVE_FAILURE,
+            proof=proof,
+        )
+        session.commit()
+    report.released += 1
 
 
 @dataclass

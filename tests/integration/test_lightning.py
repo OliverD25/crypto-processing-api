@@ -478,6 +478,182 @@ def test_a_withdrawal_whose_invoice_expired_in_the_queue_is_refunded(
     assert user_balance(session, "ln-stale", AccountKind.USER_AVAILABLE) == available_before
 
 
+# -- the deadline and the definitive-failure release ------------------------
+
+
+def submit_only(
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake: FakeBTCPay,
+    client: TestClient,
+    key: str,
+    *,
+    user: str,
+    gross: int = 50_000,
+) -> uuid.UUID:
+    """Get a Lightning withdrawal to `submitted` and leave it there."""
+    credit_ln(session, user=user)
+    _status, body = request_withdrawal(
+        client,
+        key,
+        user=user,
+        gross=gross,
+        destination=mint_bolt11(amount_sat=gross - FLAT_FEE),
+    )
+    withdrawal_id = uuid.UUID(str(body["withdrawal_id"]))
+    payout_submitter.submit_approved(session_factory, fake, get_settings())
+    return withdrawal_id
+
+
+def age_submission(session: Session, withdrawal_id: uuid.UUID, *, minutes: int) -> None:
+    withdrawal = withdrawal_service.lock(session, withdrawal_id)
+    withdrawal.submitted_at = datetime.now(UTC) - timedelta(minutes=minutes)
+    session.commit()
+
+
+def test_a_payout_inside_its_deadline_is_left_alone(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """A route can take a while. Impatience here is a cancelled payment."""
+    submit_only(session, session_factory, fake_btcpay, client, readwrite_key, user="ln-patient")
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.checked == 0
+    assert report.cancelled == 0
+
+
+def test_a_stuck_payout_is_cancelled_and_released_on_proof(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """Drill 10, in a test: no liquidity, no route, no money moved.
+
+    Route-not-found is an everyday event on Lightning, not an incident. Making
+    every one of them a support ticket for an attested admin release would be a
+    queue nobody clears — and it would be dishonest, because the node knows
+    perfectly well that no HTLC was ever offered.
+    """
+    available_before = user_balance(session, "ln-stuck", AccountKind.USER_AVAILABLE)
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-stuck"
+    )
+    available_after_hold = user_balance(session, "ln-stuck", AccountKind.USER_AVAILABLE)
+    assert available_after_hold == available_before + FUNDED - 50_000
+
+    age_submission(session, withdrawal_id, minutes=30)
+    # The node was never asked to pay it, so it has no record of the hash.
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.checked == 1
+    assert report.cancelled == 1
+    assert report.released == 1
+    assert report.needs_attestation == 0
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.REFUNDED
+    assert withdrawal.released_by == withdrawal_service.ACTOR_DEFINITIVE_FAILURE
+    attestation = withdrawal.release_attestation or ""
+    assert "did not leave" in attestation
+    # Names the payment hash, so an operator auditing the release can ask the
+    # node the same question the machine asked.
+    payment_hash = decode_bolt11(withdrawal.destination_address, network="regtest").payment_hash
+    assert payment_hash in attestation
+
+    assert (
+        user_balance(session, "ln-stuck", AccountKind.USER_AVAILABLE)
+        == available_after_hold + 50_000
+    )
+    assert user_balance(session, "ln-stuck", AccountKind.USER_HOLD) == 0
+    assert system_balance(session, AccountKind.PAYOUTS_IN_FLIGHT) == 0
+
+
+def test_a_stuck_payout_the_node_will_not_vouch_for_waits_for_a_human(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """The legality matrix is unchanged, and this is where that shows.
+
+    The payment is `Pending`: an HTLC may still be in flight and may still
+    settle. Releasing on that would be a double-pay, so the row goes `failed`
+    and stops there, waiting for an admin who has looked.
+    """
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-unsure"
+    )
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    payment_hash = decode_bolt11(withdrawal.destination_address, network="regtest").payment_hash
+    fake_btcpay.record_lightning_payment(payment_hash, status="Pending")
+    age_submission(session, withdrawal_id, minutes=30)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.cancelled == 1
+    assert report.released == 0
+    assert report.needs_attestation == 1
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.FAILED
+    assert withdrawal.release_entry_id is None
+    assert user_balance(session, "ln-unsure", AccountKind.USER_HOLD) == 50_000
+
+
+def test_a_payout_that_completes_just_before_the_deadline_is_not_cancelled(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """The race the job has to lose safely.
+
+    A route found at the last second must settle, not be cancelled out from
+    under itself, so the state is re-read after the row is selected and before
+    anything is decided.
+    """
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-lastsecond"
+    )
+    age_submission(session, withdrawal_id, minutes=30)
+
+    payout_id = withdrawal_service.get(session, withdrawal_id).backend_ref
+    assert payout_id
+    fake_btcpay.complete_payout(payout_id)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.moved_on == 1
+    assert report.cancelled == 0
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.CONFIRMED
+
+
+def test_on_chain_btc_has_no_deadline(
+    session_factory: sessionmaker[Session], fake_btcpay: FakeBTCPay
+) -> None:
+    """There is no such thing as a transaction that will not happen.
+
+    Giving up on one would mean abandoning money already in the mempool, so BTC
+    sets no timeout and this job never looks at its rows.
+    """
+    assert asset_registry.profile_for("BTC").submitted_timeout_seconds is None
+
+
 # -- custody ----------------------------------------------------------------
 
 

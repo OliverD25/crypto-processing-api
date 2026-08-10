@@ -382,6 +382,17 @@ class AssetProfile:
     #: Most assets need none: a bitcoin address does not expire and does not
     #: carry an amount of its own.
     submission_guard: Callable[[Settings, str, int], None] | None = None
+    #: How long a payout may sit `submitted` before this service cancels it,
+    #: or None for "as long as it takes".
+    #:
+    #: None is right for on-chain BTC: a transaction in the mempool is being
+    #: worked on, and there is no such thing as giving up on it. It is wrong for
+    #: Lightning, where BTCPay's processor retries an unroutable payment for as
+    #: long as the invoice lives and never moves it to a failed state — so
+    #: without a deadline the withdrawal stays `submitted` forever with the
+    #: user's balance held and no status anywhere that says "this will not
+    #: happen".
+    submitted_timeout_seconds: Callable[[Settings], int | None] | None = None
     #: Missing from the store at startup is fatal rather than a warning. BTC is
     #: the anchor: a deployment that cannot take it is broken, not degraded.
     required: bool = False
@@ -449,6 +460,7 @@ def _lightning_profile() -> AssetProfile:
         custody_source=lambda ctx: LightningNodeCustody(
             ctx.gateway, crypto_code_of(ctx.asset.btcpay_payment_method)
         ),
+        submitted_timeout_seconds=lambda settings: settings.ln_payout_timeout_seconds,
     )
 
 

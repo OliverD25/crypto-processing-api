@@ -1073,6 +1073,35 @@ def stuck_submitting(
     return list(rows)
 
 
+def timed_out_submissions(
+    session: Session, *, asset_id: str, older_than_seconds: int, limit: int = 20
+) -> list[uuid.UUID]:
+    """Payouts this asset has waited long enough for.
+
+    `submitted_at`, not `updated_at`. Every poll touches `updated_at`, even the
+    ones that change nothing, so a row that is polled every minute never looks
+    old — which would make the deadline unreachable exactly for the rows being
+    watched most closely.
+
+    `submitted` only. A payout that reached `broadcast` is being actively paid
+    and giving up on it would be giving up on money already in flight.
+    """
+    cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+    rows = session.execute(
+        select(Withdrawal.id)
+        .where(
+            Withdrawal.asset_id == asset_id,
+            Withdrawal.status == WithdrawalStatus.SUBMITTED,
+            Withdrawal.backend_ref.isnot(None),
+            Withdrawal.submitted_at.isnot(None),
+            Withdrawal.submitted_at < cutoff,
+        )
+        .order_by(Withdrawal.submitted_at)
+        .limit(limit)
+    ).scalars()
+    return list(rows)
+
+
 def held_balance(session: Session, *, asset_id: str, external_user_id: str) -> int:
     account = session.execute(
         select(Account).where(

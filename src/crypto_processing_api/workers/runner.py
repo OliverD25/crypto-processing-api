@@ -62,6 +62,7 @@ JOB_MANUAL_SWEEP = 9
 JOB_GAS_MONITOR = 10
 JOB_OUTBOUND_DELIVERY = 11
 JOB_INVARIANTS = 12
+JOB_PAYOUT_TIMEOUTS = 13
 
 
 @dataclass
@@ -180,6 +181,12 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             lock_key=JOB_STUCK_SUBMITTING,
             interval_seconds=settings.reconcile_withdrawal_interval_seconds,
             run=lambda: payout_submitter.resolve_stuck(factory, gateway, settings),
+        ),
+        Job(
+            name="payout_timeouts",
+            lock_key=JOB_PAYOUT_TIMEOUTS,
+            interval_seconds=settings.reconcile_withdrawal_interval_seconds,
+            run=lambda: reconciliation.cancel_timed_out_payouts(factory, gateway, settings),
         ),
         Job(
             name="outbound_delivery",

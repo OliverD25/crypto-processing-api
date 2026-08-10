@@ -49,6 +49,11 @@ class AlertCode(StrEnum):
     #: entry naming it, which is the shape of a loss — so it is said out loud
     #: once, here, rather than discovered later as an unexplained drift.
     WITHDRAWAL_FEE_UNBOOKED = "withdrawal.fee_unbooked"
+    #: A payout was cancelled after its deadline and the rail would not say
+    #: whether the money left. The user's balance stays held until an admin
+    #: checks and releases it with an attestation, so this is a task rather
+    #: than a notification.
+    WITHDRAWAL_HOLD_NEEDS_ATTESTATION = "withdrawal.hold_needs_attestation"
     TRON_LOW_TRX_BALANCE = "tron.low_trx_balance"
     TRON_GRID_UNREACHABLE = "tron.grid_unreachable"
     OUTBOUND_DEAD_LETTER = "outbound.dead_letter"
