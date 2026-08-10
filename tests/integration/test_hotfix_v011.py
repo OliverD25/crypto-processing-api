@@ -8,6 +8,7 @@ that never moves, or an alarm that never fires.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -116,6 +117,56 @@ def test_the_submitter_leaves_a_manual_row_untouched(
     session.refresh(withdrawal)
     assert withdrawal.status == WithdrawalStatus.APPROVED
     assert withdrawal.backend_ref is None
+
+
+def test_the_stuck_resolver_skips_manual_backends(session: Session) -> None:
+    """The third query in the pair, completed in R3.
+
+    A manual row here gets the most dangerous answer available. BTCPay has no
+    payout carrying its id and none to its TRON destination, so `resolve_stuck`
+    concludes nothing was created and returns it to `approved` — where
+    `due_for_submission` refuses to claim it and the status looks normal.
+    """
+    stale = datetime.now(UTC) - timedelta(hours=1)
+    btcpay_id = make_row(
+        session, backend=withdrawal_service.BACKEND_BTCPAY, status=WithdrawalStatus.SUBMITTING
+    )
+    manual_id = make_row(
+        session,
+        backend=withdrawal_service.BACKEND_MANUAL_TRON,
+        status=WithdrawalStatus.SUBMITTING,
+        asset=USDT,
+    )
+    for row_id in (btcpay_id, manual_id):
+        withdrawal_service.get(session, row_id).updated_at = stale
+    session.commit()
+
+    stuck = withdrawal_service.stuck_submitting(session, older_than_seconds=60)
+    assert btcpay_id in stuck
+    assert manual_id not in stuck
+
+
+def test_a_stuck_manual_row_is_never_flipped_back_to_approved(
+    session: Session, session_factory: sessionmaker[Session], fake_btcpay: Any
+) -> None:
+    """End to end through the resolver: the row must not move at all."""
+    manual_id = make_row(
+        session,
+        backend=withdrawal_service.BACKEND_MANUAL_TRON,
+        status=WithdrawalStatus.SUBMITTING,
+        asset=USDT,
+    )
+    withdrawal_service.get(session, manual_id).updated_at = datetime.now(UTC) - timedelta(hours=1)
+    session.commit()
+
+    report = payout_submitter.resolve_stuck(session_factory, fake_btcpay, get_settings())
+    assert report.resubmittable == 0
+    assert report.adopted == 0
+    assert report.frozen == 0
+
+    withdrawal = withdrawal_service.get(session, manual_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.SUBMITTING
 
 
 def test_the_btcpay_path_still_works(

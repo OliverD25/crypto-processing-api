@@ -882,11 +882,30 @@ def due_for_polling(session: Session, *, limit: int = 100) -> list[uuid.UUID]:
 def stuck_submitting(
     session: Session, *, older_than_seconds: int, limit: int = 20
 ) -> list[uuid.UUID]:
+    """Submissions whose outcome was never written down, for `resolve_stuck`.
+
+    The backend filter completes the pair added in v0.1.1. `resolve_stuck`
+    answers one question — "did BTCPay create a payout for this row?" — and it
+    is a meaningless question for a backend BTCPay cannot pay. Asked anyway, it
+    gets the most dangerous available answer: no payout carries this id, no
+    unclaimed payout matches this TRON destination, therefore nothing was
+    created, therefore return the row to `approved`. There it stops, because
+    `due_for_submission` correctly refuses to claim it, and `approved` is a
+    status that looks entirely normal on an admin screen.
+
+    Fresh rows cannot reach this state — `submit_manual` writes `backend_ref`
+    before it transitions, and `usdt_auto_withdraw` is refused at startup. The
+    rows this protects are legacy ones from a v0.1.0 deployment, and for those
+    `submitting` is the better resting place: it is visibly wrong, so it gets
+    the operator's attention and the remediation in
+    `docs/runbook-usdt-withdrawals.md`.
+    """
     cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
     rows = session.execute(
         select(Withdrawal.id)
         .where(
             Withdrawal.status == WithdrawalStatus.SUBMITTING,
+            Withdrawal.backend == BACKEND_BTCPAY,
             Withdrawal.backend_ref.is_(None),
             Withdrawal.updated_at < cutoff,
         )
