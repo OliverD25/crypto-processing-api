@@ -19,3 +19,14 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("LOG_JSON", "false")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
+
+# Matches FakeBTCPay's defaults. The webhook secret has to be real config
+# rather than a test constant, because the endpoint reads it from Settings and
+# an unconfigured secret must reject everything.
+FAKE_STORE_ID = "store-test"
+FAKE_WEBHOOK_SECRET = "test-webhook-secret"
+
+os.environ.setdefault("BTCPAY_URL", "http://btcpay.invalid")
+os.environ.setdefault("BTCPAY_API_KEY", "test-api-key")
+os.environ.setdefault("BTCPAY_STORE_ID", FAKE_STORE_ID)
+os.environ.setdefault("BTCPAY_WEBHOOK_SECRET", FAKE_WEBHOOK_SECRET)

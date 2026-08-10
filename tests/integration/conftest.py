@@ -14,19 +14,33 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from crypto_processing_api.api.middleware import get_gateway
 from crypto_processing_api.cli import asset_specs
 from crypto_processing_api.config import get_settings
+from crypto_processing_api.core import auth
 from crypto_processing_api.ledger import service
 from crypto_processing_api.ledger.invariants import assert_ledger_consistent
 from crypto_processing_api.ledger.models import AccountKind, Base, EntryKind
-from tests.conftest import REPO_ROOT, TEST_DATABASE_URL
+from crypto_processing_api.main import create_app
+from tests.conftest import (
+    FAKE_STORE_ID,
+    FAKE_WEBHOOK_SECRET,
+    REPO_ROOT,
+    TEST_DATABASE_URL,
+)
+from tests.fakes import FakeBTCPay
+
+TestClientResponse = httpx.Response
 
 BTC = "BTC"
 USDT = "USDT_TRC20"
@@ -109,6 +123,61 @@ def session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
 @pytest.fixture
 def user_id() -> str:
     return f"u-{uuid.uuid4().hex[:12]}"
+
+
+@pytest.fixture
+def fake_btcpay() -> FakeBTCPay:
+    settings = get_settings()
+    return FakeBTCPay(
+        store_id=settings.btcpay_store_id or FAKE_STORE_ID,
+        webhook_secret=settings.btcpay_webhook_secret or FAKE_WEBHOOK_SECRET,
+    )
+
+
+@pytest.fixture
+def app(fake_btcpay: FakeBTCPay) -> Iterator[FastAPI]:
+    """The real application with only the BTCPay gateway replaced."""
+    application = create_app()
+    application.dependency_overrides[get_gateway] = lambda: fake_btcpay
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
+    # Not a context manager on purpose: running the lifespan would dispose the
+    # engine the rest of the fixtures are still using.
+    yield TestClient(app)
+
+
+@pytest.fixture
+def readwrite_key(session: Session) -> str:
+    generated, _ = auth.create_api_key(
+        session, name="platform", scope=auth.SCOPE_READWRITE, prefix=auth.KEY_PREFIX_TEST
+    )
+    session.commit()
+    return generated.key
+
+
+@pytest.fixture
+def admin_key(session: Session) -> str:
+    generated, _ = auth.create_api_key(
+        session, name="ops", scope=auth.SCOPE_ADMIN, prefix=auth.KEY_PREFIX_TEST
+    )
+    session.commit()
+    return generated.key
+
+
+def bearer(key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {key}"}
+
+
+def post_webhook(
+    client: TestClient, fake: FakeBTCPay, payload: dict[str, object]
+) -> TestClientResponse:
+    """Send a webhook exactly as BTCPay would: raw bytes plus a real signature."""
+    raw, headers = fake.sign(payload)
+    return client.post("/webhooks/btcpay", content=raw, headers=headers)
 
 
 def credit_user(session: Session, *, user: str, amount: int, asset: str = BTC) -> None:

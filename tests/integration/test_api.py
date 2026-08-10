@@ -19,25 +19,29 @@ from crypto_processing_api.api.middleware import (
 )
 from crypto_processing_api.core import auth
 from crypto_processing_api.db import db_session
-from crypto_processing_api.main import create_app
+from tests.integration.conftest import bearer
 
 IDEMPOTENT_ENDPOINT = "POST /v1/things"
 
 
-@pytest.fixture
-def app() -> FastAPI:
-    """The real app plus three probe routes, since M1 ships no mutating endpoints yet."""
-    application = create_app()
+@pytest.fixture(autouse=True)
+def probe_routes(app: FastAPI) -> None:
+    """Three throwaway routes.
 
-    @application.get("/_probe/readwrite")
+    M2 ships one mutating endpoint, but auth and idempotency are generic
+    mechanisms and deserve tests that do not depend on what deposits happen to
+    do this milestone.
+    """
+
+    @app.get("/_probe/readwrite")
     def probe_readwrite(key: auth.AuthenticatedKey = Depends(require_readwrite)) -> dict[str, str]:
         return {"key_id": key.key_id, "scope": key.scope}
 
-    @application.get("/_probe/admin")
+    @app.get("/_probe/admin")
     def probe_admin(key: auth.AuthenticatedKey = Depends(require_admin)) -> dict[str, str]:
         return {"key_id": key.key_id, "scope": key.scope}
 
-    @application.post("/_probe/idempotent")
+    @app.post("/_probe/idempotent")
     def probe_idempotent(
         payload: dict[str, Any],
         context: IdempotencyContext = Depends(Idempotent(IDEMPOTENT_ENDPOINT)),
@@ -48,37 +52,6 @@ def app() -> FastAPI:
         context.complete(status_code=201, body=body, resource_id="thing-1")
         context.session.commit()
         return body
-
-    return application
-
-
-@pytest.fixture
-def client(app: FastAPI) -> Iterator[TestClient]:
-    # Deliberately not a context manager: running the lifespan would dispose
-    # the engine that the rest of the session's fixtures are still using.
-    yield TestClient(app)
-
-
-@pytest.fixture
-def readwrite_key(session: Session) -> str:
-    generated, _ = auth.create_api_key(
-        session, name="platform", scope=auth.SCOPE_READWRITE, prefix=auth.KEY_PREFIX_TEST
-    )
-    session.commit()
-    return generated.key
-
-
-@pytest.fixture
-def admin_key(session: Session) -> str:
-    generated, _ = auth.create_api_key(
-        session, name="ops", scope=auth.SCOPE_ADMIN, prefix=auth.KEY_PREFIX_TEST
-    )
-    session.commit()
-    return generated.key
-
-
-def bearer(key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {key}"}
 
 
 def test_healthz_reports_process_and_database(client: TestClient) -> None:

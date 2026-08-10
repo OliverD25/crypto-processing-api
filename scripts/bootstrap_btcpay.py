@@ -43,6 +43,12 @@ BTC_PAYMENT_METHOD_ID = "BTC-CHAIN"
 # reorg can still take away, and regtest is where that habit gets formed.
 SPEED_POLICY = "MediumSpeed"
 
+# Seconds after expiry that BTCPay keeps attributing payments to an invoice.
+# Set explicitly rather than left at the default, because the deposit sweep
+# aligns its polling window to it: past this point a payment to that address
+# belongs to no invoice at all, and only the wallet scan can find it.
+MONITORING_EXPIRATION_SECONDS = 86400
+
 WEBHOOK_EVENTS = [
     "InvoiceReceivedPayment",
     "InvoiceProcessing",
@@ -66,6 +72,10 @@ def store_scopes(store_id: str) -> list[str]:
         f"btcpay.store.canviewinvoices:{store_id}",
         f"btcpay.store.canmanagepullpayments:{store_id}",
         f"btcpay.store.canviewstoresettings:{store_id}",
+        # Read-only wallet access. Needed by the unattributed-receive scan,
+        # which is the only thing that finds coins paid to an address BTCPay
+        # has stopped watching.
+        f"btcpay.store.canviewwallet:{store_id}",
     ]
 
 
@@ -216,24 +226,40 @@ def ensure_store(admin: BTCPayAdmin, name: str) -> dict[str, Any]:
         if store.get("name") == name:
             log(f"store exists: {name} ({store['id']})")
             return store
-    store = admin.json("POST", "/api/v1/stores", json={"name": name, "speedPolicy": SPEED_POLICY})
+    store = admin.json(
+        "POST",
+        "/api/v1/stores",
+        json={
+            "name": name,
+            "speedPolicy": SPEED_POLICY,
+            "monitoringExpiration": MONITORING_EXPIRATION_SECONDS,
+        },
+    )
     log(f"created store {name} ({store['id']})")
     return store
 
 
-def ensure_speed_policy(admin: BTCPayAdmin, store: dict[str, Any]) -> None:
-    if store.get("speedPolicy") == SPEED_POLICY:
-        log(f"speed policy already {SPEED_POLICY}")
+def ensure_store_policies(admin: BTCPayAdmin, store: dict[str, Any]) -> None:
+    """Pin settlement speed and the monitoring window on the store itself."""
+    wanted = {
+        "speedPolicy": SPEED_POLICY,
+        "monitoringExpiration": MONITORING_EXPIRATION_SECONDS,
+    }
+    if all(store.get(key) == value for key, value in wanted.items()):
+        log(
+            f"store policies already set (speed {SPEED_POLICY}, "
+            f"monitoring {MONITORING_EXPIRATION_SECONDS}s)"
+        )
         return
     body = {key: value for key, value in store.items() if key != "id"}
-    body["speedPolicy"] = SPEED_POLICY
+    body.update(wanted)
     response = admin.request("PUT", f"/api/v1/stores/{store['id']}", json=body)
     if response.status_code >= 400:
         raise BootstrapError(
-            f"could not set speedPolicy={SPEED_POLICY} "
-            f"({response.status_code}: {response.text[:300]})"
+            f"could not set store policies ({response.status_code}: {response.text[:300]})"
         )
-    log(f"speed policy set to {SPEED_POLICY}")
+    store.update(wanted)
+    log(f"store policies set: speed {SPEED_POLICY}, monitoring {MONITORING_EXPIRATION_SECONDS}s")
 
 
 def ensure_hot_wallet(admin: BTCPayAdmin, store_id: str) -> None:
@@ -294,6 +320,7 @@ def ensure_webhook(
 
 
 def ensure_api_key(admin: BTCPayAdmin, config: Config, store_id: str, known_key: str) -> str:
+    required = set(store_scopes(store_id))
     if known_key:
         response = httpx.get(
             f"{config.url.rstrip('/')}/api/v1/api-keys/current",
@@ -301,9 +328,17 @@ def ensure_api_key(admin: BTCPayAdmin, config: Config, store_id: str, known_key:
             timeout=15.0,
         )
         if response.status_code == 200:
-            log("greenfield API key still valid")
-            return known_key
-        log("recorded greenfield API key no longer works; issuing a new one")
+            granted = set(response.json().get("permissions") or [])
+            missing = required - granted
+            if not missing:
+                log("greenfield API key still valid")
+                return known_key
+            # Scope sets grow between milestones; a key that predates one is
+            # valid but useless for the new call, which would surface as a
+            # confusing 403 deep inside a worker.
+            log(f"greenfield API key is missing {sorted(missing)}; issuing a new one")
+        else:
+            log("recorded greenfield API key no longer works; issuing a new one")
 
     created = admin.json(
         "POST",
@@ -343,7 +378,7 @@ def main() -> int:
     admin = ensure_admin_user(config)
     try:
         store = ensure_store(admin, config.store_name)
-        ensure_speed_policy(admin, store)
+        ensure_store_policies(admin, store)
         store_id = str(store["id"])
         ensure_hot_wallet(admin, store_id)
         webhook_id, webhook_secret = ensure_webhook(
@@ -364,6 +399,7 @@ def main() -> int:
         "BTCPAY_ADMIN_EMAIL": config.admin_email,
         "BTCPAY_ADMIN_PASSWORD": config.admin_password,
         "SEED_BTC_PAYMENT_METHOD": BTC_PAYMENT_METHOD_ID,
+        "DEPOSIT_MONITORING_MINUTES": str(MONITORING_EXPIRATION_SECONDS // 60),
     }
     write_env_file(config.output_path, values)
     log(f"wrote {config.output_path}")
