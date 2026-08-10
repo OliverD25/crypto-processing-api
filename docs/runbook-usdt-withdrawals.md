@@ -174,3 +174,95 @@ a release.
 The gas monitor alerts below the threshold with code `tron.low_trx_balance`.
 Top up the hot wallet with TRX. Withdrawals already in `submitted` are
 unaffected; they are waiting for you either way.
+
+---
+
+## Remediation: withdrawals stranded by the v0.1.0 `USDT_AUTO_WITHDRAW` bug
+
+**Only affects deployments that ran v0.1.0 with `USDT_AUTO_WITHDRAW=true`.** If
+you left it at the default `false`, there is nothing to do here. From v0.1.1
+that setting is refused at startup, so no new row can end up this way.
+
+### What went wrong
+
+With the flag on, a USDT withdrawal was created already in `approved` instead of
+`pending_approval`. Nothing can act on that:
+
+- there is no automated TRON signer, so no worker can send it
+- the admin approve endpoint is the only code that hands a manual withdrawal to
+  an operator, and its compare-and-swap requires `pending_approval` — calling
+  approve on one of these returns `409`
+
+In v0.1.0 the BTCPay submitter picked the row up anyway, quoted a Bitcoin fee
+against a USDT payment method, had the payout rejected, and put the row back to
+`approved` — a loop every ten seconds, and a visible error drip.
+
+v0.1.1 stops the submitter touching it. That removes the noise but not the
+stall: **the user's balance stays held and the withdrawal never moves.** These
+rows need one SQL statement.
+
+### Find them
+
+```sql
+SELECT id, external_user_id, amount_gross, status, created_at
+FROM withdrawals
+WHERE backend = 'manual_tron'
+  AND status IN ('approved', 'submitting')
+  AND backend_ref IS NULL
+ORDER BY created_at;
+```
+
+`backend_ref IS NULL` is the important condition. It proves no payout and no
+transaction id was ever recorded, so **nothing is in flight** — which is what
+makes the repair safe. A row with a `backend_ref` was genuinely handed to an
+operator and must not be touched; use the ordinary flow for it.
+
+Run the query first and read the output. If it returns nothing, stop.
+
+### Repair
+
+```sql
+BEGIN;
+
+UPDATE withdrawals
+   SET status = 'pending_approval',
+       approval_mode = 'manual',
+       approved_by = NULL,
+       updated_at = now()
+ WHERE backend = 'manual_tron'
+   AND status IN ('approved', 'submitting')
+   AND backend_ref IS NULL;
+
+-- Check the count matches what the SELECT showed, then:
+COMMIT;
+```
+
+What it does, and does not do:
+
+- moves the row into the queue the admin approve endpoint accepts
+- marks it `manual`, which is what it always should have been
+- clears `approved_by`, since "auto" was never a real approval
+- **touches no ledger row.** The hold stays exactly as it is, so the user's
+  balance does not move and no entry is written
+
+`approved -> pending_approval` is deliberately not in the transition matrix —
+nothing in the running service may walk a withdrawal backwards, and that rule
+stays. This is a one-off repair of rows the service can no longer create,
+applied out of band precisely because the state machine correctly refuses it.
+There is a test pinning both halves of that:
+`test_the_remediation_sql_routes_stranded_rows_to_the_approval_queue`.
+
+### Afterwards
+
+The rows appear in the normal queue:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN_KEY" \
+  "$API/v1/admin/withdrawals?status=pending_approval" | jq
+```
+
+From here it is the ordinary procedure at the top of this page: check the
+destination, approve, send `amount_net`, record the transaction id.
+
+Set `USDT_AUTO_WITHDRAW=false` (or remove it) before restarting on v0.1.1 —
+the service refuses to start otherwise, which is the point.

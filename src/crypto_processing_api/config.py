@@ -160,6 +160,19 @@ class Settings(BaseSettings):
                 "TronGrid access is rate-limited unpredictably and USDT withdrawal "
                 "verification depends on it"
             )
+        # There is no automated TRON signer, so nothing can act on an
+        # auto-approved USDT withdrawal. `place_hold` would create the row
+        # already in `approved`, and the only code that hands a manual
+        # withdrawal to an operator is the admin approve endpoint, whose
+        # compare-and-swap requires `pending_approval`. The row would sit
+        # there with the user's balance held and no legal action available.
+        if self.usdt_auto_withdraw:
+            raise ValueError(
+                "USDT_AUTO_WITHDRAW=true is not supported: the BTCPay USDt plugin has no "
+                "payout handler, so no code can send an auto-approved USDT withdrawal and "
+                "the request would stall with the user's balance held. Leave it false "
+                "until an automated TRON signer ships."
+            )
         if self.platform_webhook_url and not self.platform_webhook_secret:
             raise ValueError(
                 "PLATFORM_WEBHOOK_URL is set but PLATFORM_WEBHOOK_SECRET is not; an "
