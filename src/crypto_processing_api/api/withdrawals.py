@@ -35,11 +35,23 @@ ENDPOINT_CREATE = "POST /v1/withdrawals"
 MAX_PAGE = 100
 
 
+#: A destination is not always an address. 255 was sized for base58 and bech32,
+#: where the longest thing that fits is about 90 characters, and it silently
+#: made Lightning impossible to request: a BOLT11 invoice from a real node runs
+#: past 300, and one carrying route hints goes further still.
+#:
+#: The cap is kept — an unbounded field reaches the database and the logs — but
+#: at a size the rails actually use. It is deliberately one number for every
+#: asset: a per-asset limit would be a second place to remember an asset exists,
+#: which is the thing the registry was built to stop.
+MAX_DESTINATION_LENGTH = 2048
+
+
 class CreateWithdrawalRequest(BaseModel):
     external_user_id: str = Field(min_length=1, max_length=255)
     asset: str = Field(min_length=1, max_length=32)
     amount: str = Field(description="Gross amount in integer smallest units, as a string")
-    destination_address: str = Field(min_length=1, max_length=255)
+    destination_address: str = Field(min_length=1, max_length=MAX_DESTINATION_LENGTH)
 
     @field_validator("amount")
     @classmethod

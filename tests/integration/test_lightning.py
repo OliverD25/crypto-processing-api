@@ -11,8 +11,10 @@ should be proving green.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +41,19 @@ FUNDED = 5_000_000
 FLAT_FEE = 100
 
 pytestmark = pytest.mark.usefixtures("lightning")
+
+
+def load_real_bolt11() -> str:
+    """The longest invoice a real LND actually produced, from the corpus."""
+    samples = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures"
+            / "greenfield"
+            / "ln_bolt11_samples.json"
+        ).read_text(encoding="utf-8")
+    )
+    return max(samples.values(), key=len)
 
 
 def credit_ln(session: Session, *, user: str, amount: int = FUNDED) -> None:
@@ -186,6 +201,42 @@ def test_a_lightning_deposit_reserves_no_address_window(
 
 
 # -- destination validation -------------------------------------------------
+
+
+def test_an_invoice_longer_than_an_address_is_accepted(
+    client: TestClient, session: Session, readwrite_key: str
+) -> None:
+    """The regression that only a real node found.
+
+    `destination_address` was capped at 255 characters, which is generous for
+    base58 and bech32 and impossible for BOLT11: a real invoice from LND is
+    over 300, and one with route hints is longer again. Every test passed,
+    because the minted invoices were shorter than the cap — so the first thing
+    to assert here is that this one is not.
+    """
+    credit_ln(session, user="ln-long")
+    destination = mint_bolt11(amount_sat=49_900)
+    assert len(destination) > 255, "this test cannot fail if the invoice is short"
+    assert len(destination) >= len(load_real_bolt11()), (
+        "a minted invoice must be at least as long as the ones a real node produced, "
+        "or it is testing a smaller string than production will see"
+    )
+
+    status_code, body = request_withdrawal(
+        client, readwrite_key, user="ln-long", gross=50_000, destination=destination
+    )
+    assert status_code == 201, body
+
+
+def test_a_destination_beyond_every_rail_is_still_refused(
+    client: TestClient, session: Session, readwrite_key: str
+) -> None:
+    """The cap moved; it did not go away."""
+    credit_ln(session, user="ln-huge")
+    status_code, _body = request_withdrawal(
+        client, readwrite_key, user="ln-huge", gross=50_000, destination="lnbcrt1" + "q" * 4000
+    )
+    assert status_code == 422
 
 
 def test_an_amountless_invoice_is_accepted(

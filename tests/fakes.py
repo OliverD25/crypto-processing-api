@@ -66,6 +66,10 @@ def mint_bolt11(
     timestamp: int | None = None,
     payment_hash: str | None = None,
     prefix: str = "bcrt",
+    description: str = (
+        "cpapi test invoice - deliberately described at a length that makes the "
+        "encoded invoice at least as long as a real one from LND"
+    ),
 ) -> str:
     """Build a decodable BOLT11 invoice with the properties a test needs.
 
@@ -79,6 +83,13 @@ def mint_bolt11(
     signature — BTCPay's node does that when it pays — so what has to be real
     here is the checksum, the amount encoding and the tagged fields, and all
     three are.
+
+    A description is included by default, and that is not decoration. Without
+    one these came out around 250 characters, comfortably inside the request
+    model's old 255-character cap on `destination_address` — so the whole test
+    suite was green while a real 320-character invoice from LND was rejected by
+    the API before it reached any of this. Minting something shorter than the
+    real thing is a way to test nothing.
     """
     digest = payment_hash or hashlib.sha256(f"{amount_sat}:{expiry_seconds}".encode()).hexdigest()
     now = timestamp if timestamp is not None else int(datetime.now(UTC).timestamp())
@@ -92,6 +103,8 @@ def mint_bolt11(
     data = [(now >> (5 * (6 - index))) & 31 for index in range(7)]
     data += _tag("p", [((int(digest, 16) << 4) >> (5 * (51 - i))) & 31 for i in range(52)])
     data += _tag("x", _minimal_groups(expiry_seconds))
+    if description:
+        data += _tag("d", _padded_groups(description.encode()))
     data += [0] * 104  # where a 65-byte signature would be
 
     hrp = f"ln{prefix}{amount_part}"
@@ -103,6 +116,26 @@ def mint_bolt11(
 def _tag(character: str, value: list[int]) -> list[int]:
     length = len(value)
     return [BECH32_CHARSET.index(character), length >> 5, length & 31, *value]
+
+
+def _padded_groups(raw: bytes) -> list[int]:
+    """Bytes to 5-bit groups, zero-padded.
+
+    Not `core.addresses._convert_bits`: that one refuses padding, which is
+    right for a witness program and wrong for a BOLT11 tagged field.
+    """
+    accumulator = 0
+    bits = 0
+    groups: list[int] = []
+    for byte in raw:
+        accumulator = (accumulator << 8) | byte
+        bits += 8
+        while bits >= 5:
+            bits -= 5
+            groups.append((accumulator >> bits) & 31)
+    if bits:
+        groups.append((accumulator << (5 - bits)) & 31)
+    return groups
 
 
 def _minimal_groups(value: int) -> list[int]:

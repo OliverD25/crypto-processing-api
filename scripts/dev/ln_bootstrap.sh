@@ -133,7 +133,11 @@ wait_synced() {
     node="$1"
     i=0
     while [ "$i" -lt 60 ]; do
-        if [ "$(lncli "$node" getinfo 2>/dev/null | grep -c '"synced_to_chain": true')" -gt 0 ]; then
+        # lncli pretty-prints with two spaces after the colon, so the pattern
+        # has to tolerate whitespace. A fixed `": true"` matches nothing and
+        # times out sixty seconds later saying the node never synced.
+        if lncli "$node" getinfo 2>/dev/null |
+            grep -q '"synced_to_chain":[[:space:]]*true'; then
             return 0
         fi
         i=$((i + 1))
@@ -211,7 +215,7 @@ wait_active() {
     i=0
     while [ "$i" -lt 45 ]; do
         actives=$(lncli "$from" listchannels --peer "$to_key" 2>/dev/null |
-            grep -c '"active": true' || true)
+            grep -c '"active":[[:space:]]*true' || true)
         if [ "${actives:-0}" -gt 0 ]; then
             log "$from -> $to_host: channel active"
             return 0
@@ -264,6 +268,10 @@ wait_active lnd-user "$BTCPAY_KEY" lnd-btcpay
 wait_active lnd-btcpay "$PAYEE_KEY" lnd-payee
 
 log "channels from the store's node:"
+# The raw lines rather than a reformat of them. `local_balance` on the payee
+# channel is the number drill 10 has to exceed, and an operator reading this
+# should see exactly what the node said.
 lncli lnd-btcpay listchannels |
-    sed -n 's/.*"\(active\|local_balance\|remote_balance\|remote_pubkey\)"[^"0-9]*\("\?\)\([^",]*\).*/  \1=\3/p'
+    grep -E '"(active|remote_pubkey|local_balance|remote_balance)"' |
+    sed 's/^[[:space:]]*/  /' >&2
 log "done"

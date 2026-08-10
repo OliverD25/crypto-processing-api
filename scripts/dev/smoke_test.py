@@ -1,23 +1,40 @@
 #!/usr/bin/env python
-"""End-to-end BTC deposit drills against the regtest stack.
+"""End-to-end deposit and withdrawal drills against the regtest stack.
 
     docker compose -f deploy/docker-compose.regtest.yml up -d
     python scripts/bootstrap_btcpay.py
-    python scripts/dev/smoke_test.py                 # deposit + outage + replay
+    python scripts/dev/smoke_test.py                 # everything but `late`
     python scripts/dev/smoke_test.py --drill late    # adds ~3 minutes
 
 Every assertion is about money: the exact number of satoshis credited, and the
 number of times it was credited. Drills:
 
-  deposit  create a deposit, pay it, mine, assert the balance to the satoshi
-  outage   stop the api, pay, mine, restart — the poller has to credit it,
-           because that is the whole claim of the reconciliation design
-  replay   ask BTCPay to redeliver a delivery repeatedly; still one credit
-  late     pay after the invoice expires — must land in review, not be
-           credited, and an admin resolve then credits it
+  deposit    create a deposit, pay it, mine, assert the balance to the satoshi
+  outage     stop the api, pay, mine, restart — the poller has to credit it,
+             because that is the whole claim of the reconciliation design
+  replay     ask BTCPay to redeliver a delivery repeatedly; still one credit
+  late       pay after the invoice expires — must land in review, not be
+             credited, and an admin resolve then credits it
+  withdraw   below the limit, auto-approved, exact to the satoshi
+  approval   above the limit, waits for an admin, then completes
+  crash      payout created, status never written, no double send
 
-This is a manual script, not part of pytest: it needs the whole stack, and the
-late drill waits for real wall-clock expiry.
+The Lightning drills need the overlay stack and are skipped without it:
+
+    docker compose -f deploy/docker-compose.regtest.yml \
+                   -f deploy/docker-compose.regtest.lightning.yml up -d
+    sh scripts/dev/ln_bootstrap.sh
+    LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py
+    python scripts/dev/smoke_test.py --drill lightning
+
+  ln_deposit     pay a BOLT11 from another node; instant settle, exact sats
+  ln_withdraw    pay an invoice; payment hash recorded, routing fee booked
+  ln_exhausted   ask for more than the channel can route; the deadline
+                 cancels it and the node's own answer releases the hold
+  ln_expired     an expired invoice is refused before any balance is held
+
+This is a manual script, not part of pytest: it needs the whole stack, and two
+of the drills wait on real wall-clock deadlines.
 """
 
 from __future__ import annotations
@@ -36,11 +53,19 @@ import httpx
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMPOSE_FILE = REPO_ROOT / "deploy" / "docker-compose.regtest.yml"
+LIGHTNING_COMPOSE_FILE = REPO_ROOT / "deploy" / "docker-compose.regtest.lightning.yml"
 GENERATED_ENV = REPO_ROOT / ".env.regtest.generated"
 
 API_URL = "http://127.0.0.1:8095"
 SATS = Decimal(100_000_000)
 WALLET = "regtest"
+
+BTC = "BTC"
+BTC_LN = "BTC_LN"
+
+#: Set once `main` knows whether a Lightning drill was asked for. The overlay
+#: has to be on every compose call or `exec` cannot see the LND containers.
+COMPOSE_FILES: list[Path] = [COMPOSE_FILE]
 
 
 class SmokeFailure(AssertionError):
@@ -65,7 +90,19 @@ def run(*args: str, check: bool = True, capture: bool = True) -> str:
 
 
 def compose(*args: str, **kwargs: Any) -> str:
-    return run("docker", "compose", "-f", str(COMPOSE_FILE), *args, **kwargs)
+    files: list[str] = []
+    for path in COMPOSE_FILES:
+        files.extend(["-f", str(path)])
+    return run("docker", "compose", *files, *args, **kwargs)
+
+
+def lncli(node: str, *args: str) -> Any:
+    """One `lncli` call against a node in the overlay stack."""
+    raw = compose("exec", "-T", node, "lncli", "--network=regtest", "--lnddir=/data", *args)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
 
 
 def bitcoin_cli(*args: str) -> Any:
@@ -107,10 +144,12 @@ class Api:
             base_url=API_URL, headers={"Authorization": f"Bearer {key}"}, timeout=30.0
         )
 
-    def create_deposit(self, user: str, idempotency_key: str) -> dict[str, Any]:
+    def create_deposit(
+        self, user: str, idempotency_key: str, *, asset: str = BTC
+    ) -> dict[str, Any]:
         response = self.client.post(
             "/v1/deposits",
-            json={"external_user_id": user, "asset": "BTC"},
+            json={"external_user_id": user, "asset": asset},
             headers={"Idempotency-Key": idempotency_key},
         )
         if response.status_code != 201:
@@ -123,13 +162,19 @@ class Api:
         return dict(response.json())
 
     def create_withdrawal(
-        self, user: str, sats: int, destination: str, idempotency_key: str
+        self,
+        user: str,
+        sats: int,
+        destination: str,
+        idempotency_key: str,
+        *,
+        asset: str = BTC,
     ) -> dict[str, Any]:
         response = self.client.post(
             "/v1/withdrawals",
             json={
                 "external_user_id": user,
-                "asset": "BTC",
+                "asset": asset,
                 "amount": str(sats),
                 "destination_address": destination,
             },
@@ -138,6 +183,27 @@ class Api:
         if response.status_code != 201:
             raise SmokeFailure(f"withdrawal request failed: {response.status_code} {response.text}")
         return dict(response.json())
+
+    def withdrawal_refusal(
+        self, user: str, sats: int, destination: str, idempotency_key: str, *, asset: str = BTC
+    ) -> tuple[int, str]:
+        """A request expected to be refused. Returns the status and the detail."""
+        response = self.client.post(
+            "/v1/withdrawals",
+            json={
+                "external_user_id": user,
+                "asset": asset,
+                "amount": str(sats),
+                "destination_address": destination,
+            },
+            headers={"Idempotency-Key": idempotency_key},
+        )
+        detail = ""
+        try:
+            detail = str(response.json().get("detail", ""))
+        except ValueError:
+            detail = response.text[:200]
+        return response.status_code, detail
 
     def withdrawal(self, withdrawal_id: str) -> dict[str, Any]:
         response = self.client.get(f"/v1/withdrawals/{withdrawal_id}")
@@ -155,15 +221,15 @@ class Api:
             raise SmokeFailure(f"approve failed: {response.status_code} {response.text}")
         return dict(response.json())
 
-    def ledger_balances(self, user: str) -> dict[str, int]:
+    def ledger_balances(self, user: str, *, asset: str = BTC) -> dict[str, int]:
         """Read the ledger directly: there is no balances endpoint before M5."""
         available = psql(
             "SELECT COALESCE(-balance, 0) FROM accounts WHERE kind = 'user_available' "
-            f"AND external_user_id = '{user}' AND asset_id = 'BTC'"
+            f"AND external_user_id = '{user}' AND asset_id = '{asset}'"
         )
         held = psql(
             "SELECT COALESCE(-balance, 0) FROM accounts WHERE kind = 'user_hold' "
-            f"AND external_user_id = '{user}' AND asset_id = 'BTC'"
+            f"AND external_user_id = '{user}' AND asset_id = '{asset}'"
         )
         return {"available": int(available or 0), "held": int(held or 0)}
 
@@ -248,11 +314,7 @@ def wait_for_api() -> None:
 
 def psql(statement: str) -> str:
     """Run one query against the regtest ledger database."""
-    return run(
-        "docker",
-        "compose",
-        "-f",
-        str(COMPOSE_FILE),
+    return compose(
         "exec",
         "-T",
         "postgres-ledger",
@@ -266,6 +328,14 @@ def psql(statement: str) -> str:
         "-c",
         statement,
     )
+
+
+def system_balance(kind: str, *, asset: str) -> int:
+    raw = psql(
+        "SELECT COALESCE(balance, 0) FROM accounts "
+        f"WHERE kind = '{kind}' AND asset_id = '{asset}' AND external_user_id IS NULL"
+    )
+    return int(raw or 0)
 
 
 def destination_received(address: str) -> Decimal:
@@ -618,7 +688,263 @@ def drill_crash(api: Api, generated: dict[str, str]) -> None:
     log(f"  destination received exactly {received} BTC, once")
 
 
-DRILLS = ("deposit", "outage", "replay", "late", "withdraw", "approval", "crash")
+# -- lightning drills ------------------------------------------------------
+#
+# The counterparties are two separate nodes on purpose, and the reason is drill
+# 10. `lnd-user` has a large channel *to* the store, so it can pay deposits;
+# `lnd-payee` sits behind a small channel *from* the store, so its inbound
+# capacity is what a withdrawal runs out of. Share one node between the two
+# roles and every deposited satoshi becomes a satoshi we can pay straight back,
+# which makes a liquidity failure impossible to stage.
+
+#: Matches SEED_LN_WITHDRAWAL_FLAT_FEE, which the overlay leaves at its default.
+LN_FLAT_FEE = 100
+#: Comfortably above the payee's channel, so no route can carry it.
+LN_UNROUTABLE_NET = 2_999_900
+
+
+def ln_addinvoice(node: str, *, sats: int | None = None, expiry: int | None = None) -> str:
+    args = ["addinvoice", "--memo", f"cpapi-drill-{time.time()}"]
+    if sats is not None:
+        args += ["--amt", str(sats)]
+    if expiry is not None:
+        args += ["--expiry", str(expiry)]
+    body = lncli(node, *args)
+    request = str(body.get("payment_request", "")) if isinstance(body, dict) else ""
+    if not request.startswith("lnbcrt"):
+        raise SmokeFailure(f"{node} did not return a regtest invoice: {body!r}")
+    return request
+
+
+def ln_pay(node: str, invoice: str, *, sats: int | None = None) -> None:
+    args = ["payinvoice", "--force", "--json"]
+    if sats is not None:
+        args += ["--amt", str(sats)]
+    args.append(invoice)
+    body = lncli(node, *args)
+    text = json.dumps(body) if isinstance(body, dict) else str(body)
+    if '"SUCCEEDED"' not in text and "SUCCEEDED" not in text:
+        raise SmokeFailure(f"{node} could not pay the invoice: {text[:400]}")
+
+
+def ln_local_balance() -> int:
+    """The store node's outbound liquidity, in satoshis."""
+    body = lncli("lnd-btcpay", "channelbalance")
+    if not isinstance(body, dict):
+        raise SmokeFailure(f"unreadable channelbalance: {body!r}")
+    local = body.get("local_balance") or {}
+    return int(local.get("sat", 0))
+
+
+def drill_ln_deposit(api: Api) -> None:
+    log("drill: ln_deposit — pay a BOLT11 from another node, settle at once")
+    sats = 1_500_000
+
+    deposit = api.create_deposit("ln-user", f"lnd-{time.time()}", asset=BTC_LN)
+    invoice = deposit["address"]
+    if not invoice.startswith("lnbcrt"):
+        raise SmokeFailure(f"a Lightning deposit must hand out an invoice, got {invoice[:24]}...")
+    log(f"  deposit {deposit['deposit_id']} -> {invoice[:32]}...")
+
+    before = api.ledger_balances("ln-user", asset=BTC_LN)
+    # The invoice is amountless, so the payer chooses. No blocks are mined:
+    # a settled HTLC is final the moment it settles.
+    ln_pay("lnd-user", invoice, sats=sats)
+
+    body = wait_for_status(api, deposit["deposit_id"], "settled", timeout=120)
+    expected = f"{Decimal(sats) / SATS:.8f}"
+    if body["amount_credited"] != expected:
+        raise SmokeFailure(f"expected {expected} credited, got {body['amount_credited']}")
+
+    after = api.ledger_balances("ln-user", asset=BTC_LN)
+    if after["available"] - before["available"] != sats:
+        raise SmokeFailure(
+            f"available moved by {after['available'] - before['available']}, expected {sats}"
+        )
+    log(f"  credited exactly {sats} sat with no confirmations to wait for")
+
+
+def drill_ln_withdraw(api: Api) -> None:
+    log("drill: ln_withdraw — routing fee booked, payment hash recorded")
+    net = 100_000
+    gross = net + LN_FLAT_FEE
+
+    balances = api.ledger_balances("ln-user", asset=BTC_LN)
+    if balances["available"] < gross:
+        deposit = api.create_deposit("ln-user", f"lnw-fund-{time.time()}", asset=BTC_LN)
+        ln_pay("lnd-user", deposit["address"], sats=gross * 3)
+        wait_for_status(api, deposit["deposit_id"], "settled", timeout=120)
+        balances = api.ledger_balances("ln-user", asset=BTC_LN)
+
+    invoice = ln_addinvoice("lnd-payee", sats=net)
+    hot_before = system_balance("hot_wallet", asset=BTC_LN)
+    expense_before = system_balance("network_fee_expense", asset=BTC_LN)
+    channel_before = ln_local_balance()
+
+    created = api.create_withdrawal("ln-user", gross, invoice, f"lnw-{time.time()}", asset=BTC_LN)
+    if created["status"] == "pending_approval":
+        log(f"  queued ({created.get('approval_reason')}); approving")
+        api.approve(created["withdrawal_id"])
+    log(f"  withdrawal {created['withdrawal_id']} for {gross} sat gross")
+
+    confirmed = wait_for_withdrawal(api, created["withdrawal_id"], "confirmed", timeout=300)
+
+    txid = confirmed["txid"] or ""
+    if len(txid) != 64:
+        raise SmokeFailure(f"expected a 64-character payment hash, got {txid!r}")
+    if int(Decimal(confirmed["fee"]) * SATS) != LN_FLAT_FEE:
+        raise SmokeFailure(f"fee is {confirmed['fee']}, expected the flat {LN_FLAT_FEE} sat")
+    if int(Decimal(confirmed["amount_net"]) * SATS) != net:
+        raise SmokeFailure(f"net is {confirmed['amount_net']}, expected {net}")
+
+    routing_fee = system_balance("network_fee_expense", asset=BTC_LN) - expense_before
+    if routing_fee < 0:
+        raise SmokeFailure(f"the routing fee booked negative: {routing_fee}")
+
+    hot_after = system_balance("hot_wallet", asset=BTC_LN)
+    if hot_before - hot_after != net + routing_fee:
+        raise SmokeFailure(
+            f"hot_wallet fell by {hot_before - hot_after}, expected {net + routing_fee} "
+            f"(net {net} + routing fee {routing_fee})"
+        )
+    if system_balance("payouts_in_flight", asset=BTC_LN) != 0:
+        raise SmokeFailure("payouts_in_flight did not unwind")
+
+    channel_drop = channel_before - ln_local_balance()
+    log(
+        f"  paid {net} sat, hash {txid[:16]}..., routing fee {routing_fee} sat booked; "
+        f"ledger custody -{net + routing_fee}, channel -{channel_drop}"
+    )
+    if channel_drop > net + routing_fee:
+        raise SmokeFailure(
+            f"the channel fell by {channel_drop} but the ledger only accounts for "
+            f"{net + routing_fee}; that difference is unbooked custody"
+        )
+
+
+def drill_ln_exhausted(api: Api) -> None:
+    log("drill: ln_exhausted — no route, the deadline cancels, the node proves it")
+    gross = LN_UNROUTABLE_NET + LN_FLAT_FEE
+
+    balances = api.ledger_balances("ln-drain", asset=BTC_LN)
+    if balances["available"] < gross:
+        deposit = api.create_deposit("ln-drain", f"lnx-fund-{time.time()}", asset=BTC_LN)
+        ln_pay("lnd-user", deposit["address"], sats=gross + 100_000)
+        wait_for_status(api, deposit["deposit_id"], "settled", timeout=120)
+        balances = api.ledger_balances("ln-drain", asset=BTC_LN)
+
+    outbound = ln_local_balance()
+    if outbound >= gross:
+        raise SmokeFailure(
+            f"the store node can route {outbound} sat, which is more than the {gross} sat "
+            "this drill asks for — re-run scripts/dev/ln_bootstrap.sh, the payee channel "
+            "is meant to be the limit"
+        )
+
+    invoice = ln_addinvoice("lnd-payee", sats=LN_UNROUTABLE_NET)
+    created = api.create_withdrawal("ln-drain", gross, invoice, f"lnx-{time.time()}", asset=BTC_LN)
+    withdrawal_id = created["withdrawal_id"]
+    if created["status"] == "pending_approval":
+        log(f"  queued ({created.get('approval_reason')}); approving")
+        api.approve(withdrawal_id)
+
+    held = wait_for_withdrawal(api, withdrawal_id, "submitted", timeout=180)
+    log(f"  submitted and unroutable; balance held ({held['amount_gross']})")
+
+    def refunded() -> dict[str, Any] | None:
+        body = api.withdrawal(withdrawal_id)
+        return body if body["status"] == "refunded" else None
+
+    # The service's own deadline, then the job that acts on it. The overlay
+    # sets LN_PAYOUT_TIMEOUT_SECONDS to 60 so this is a wait, not an afternoon.
+    body = wait_until(
+        refunded,
+        timeout=300,
+        description="the deadline to cancel the payout and the node to prove it unpaid",
+        interval=5,
+    )
+
+    row = psql(
+        "SELECT released_by || '|' || COALESCE(release_attestation, '') FROM withdrawals "
+        f"WHERE id = '{withdrawal_id}'"
+    )
+    released_by, _, attestation = row.partition("|")
+    if released_by.strip() != "auto:definitive_failure_proof":
+        raise SmokeFailure(
+            f"released by {released_by!r}; the hold should have been given back on the "
+            "node's own answer, not by anything else"
+        )
+    if "did not leave" not in attestation:
+        raise SmokeFailure(f"the attestation does not say the funds stayed put: {attestation!r}")
+
+    balances_after = api.ledger_balances("ln-drain", asset=BTC_LN)
+    if balances_after["available"] != balances["available"]:
+        raise SmokeFailure(
+            f"available is {balances_after['available']}, expected the pre-withdrawal "
+            f"{balances['available']}"
+        )
+    if balances_after["held"] != 0:
+        raise SmokeFailure(f"{balances_after['held']} sat is still held")
+    if system_balance("payouts_in_flight", asset=BTC_LN) != 0:
+        raise SmokeFailure("payouts_in_flight did not unwind after the release")
+
+    log(f"  refunded on proof, nothing held, status {body['status']}")
+
+
+def drill_ln_expired(api: Api) -> None:
+    log("drill: ln_expired — an expired invoice is refused before any hold")
+    gross = 50_000 + LN_FLAT_FEE
+
+    balances = api.ledger_balances("ln-user", asset=BTC_LN)
+    before_rows = psql(
+        "SELECT COUNT(*) FROM withdrawals WHERE external_user_id = 'ln-user' "
+        f"AND asset_id = '{BTC_LN}'"
+    )
+
+    invoice = ln_addinvoice("lnd-payee", sats=50_000, expiry=1)
+    log("  waiting for the invoice to expire")
+    time.sleep(3)
+
+    status, detail = api.withdrawal_refusal(
+        "ln-user", gross, invoice, f"lnexp-{time.time()}", asset=BTC_LN
+    )
+    if status != 422:
+        raise SmokeFailure(f"expected 422 for an expired invoice, got {status}: {detail}")
+    if "expires at" not in detail:
+        raise SmokeFailure(f"the refusal does not mention the expiry: {detail!r}")
+
+    after_rows = psql(
+        "SELECT COUNT(*) FROM withdrawals WHERE external_user_id = 'ln-user' "
+        f"AND asset_id = '{BTC_LN}'"
+    )
+    if after_rows.strip() != before_rows.strip():
+        raise SmokeFailure(
+            f"a withdrawal row was created for a refused request "
+            f"({before_rows.strip()} -> {after_rows.strip()})"
+        )
+    balances_after = api.ledger_balances("ln-user", asset=BTC_LN)
+    if balances_after != balances:
+        raise SmokeFailure(f"balances moved on a refused request: {balances} -> {balances_after}")
+
+    log(f"  refused with 422, no row and no hold ({detail[:70]}...)")
+
+
+LIGHTNING_DRILLS = ("ln_deposit", "ln_withdraw", "ln_exhausted", "ln_expired")
+DRILLS = (
+    "deposit",
+    "outage",
+    "replay",
+    "late",
+    "withdraw",
+    "approval",
+    "crash",
+    *LIGHTNING_DRILLS,
+)
+
+
+#: The order drills run in. `deposit` first because everything else assumes a
+#: funded wallet, and the Lightning ones last because they need the overlay.
+DRILL_ORDER = DRILLS
 
 
 def main() -> int:
@@ -626,39 +952,61 @@ def main() -> int:
     parser.add_argument(
         "--drill",
         action="append",
-        choices=[*DRILLS, "all", "fast"],
-        help="repeatable; default is 'fast' (everything except the late drill)",
+        choices=[*DRILLS, "all", "fast", "lightning"],
+        help=(
+            "repeatable. 'fast' is the on-chain set without `late`; 'lightning' is the "
+            "four BTC_LN drills; 'all' is everything. Default: fast."
+        ),
     )
     args = parser.parse_args()
 
     selected = set(args.drill or ["fast"])
     if "all" in selected:
         selected = set(DRILLS)
-    elif "fast" in selected:
-        selected = {"deposit", "outage", "replay", "withdraw", "approval", "crash"}
+    else:
+        if "fast" in selected:
+            selected.discard("fast")
+            selected |= {"deposit", "outage", "replay", "withdraw", "approval", "crash"}
+        if "lightning" in selected:
+            selected.discard("lightning")
+            selected |= set(LIGHTNING_DRILLS)
+
+    if selected & set(LIGHTNING_DRILLS):
+        if not LIGHTNING_COMPOSE_FILE.is_file():
+            raise SmokeFailure(f"{LIGHTNING_COMPOSE_FILE} is missing")
+        COMPOSE_FILES.append(LIGHTNING_COMPOSE_FILE)
 
     generated = read_generated_env()
+    if selected & set(LIGHTNING_DRILLS) and generated.get("LIGHTNING_ENABLED") != "true":
+        raise SmokeFailure(
+            "the Lightning drills need a stack bootstrapped with LIGHTNING_ENABLED=true. "
+            "Run: LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py, then recreate "
+            "the api and worker containers."
+        )
+
     wait_for_api()
     fund_node()
     api_key = create_api_key()
     api = Api(api_key)
 
-    if "deposit" in selected:
-        drill_deposit(api)
-    if "outage" in selected:
-        drill_outage(api_key)
-    if "replay" in selected:
-        drill_replay(api, generated)
-    if "late" in selected:
-        drill_late(api)
-    if "withdraw" in selected:
-        drill_withdraw(api)
-    if "approval" in selected:
-        drill_approval(api)
-    if "crash" in selected:
-        drill_crash(api, generated)
+    runners: dict[str, Callable[[], None]] = {
+        "deposit": lambda: drill_deposit(api),
+        "outage": lambda: drill_outage(api_key),
+        "replay": lambda: drill_replay(api, generated),
+        "late": lambda: drill_late(api),
+        "withdraw": lambda: drill_withdraw(api),
+        "approval": lambda: drill_approval(api),
+        "crash": lambda: drill_crash(api, generated),
+        "ln_deposit": lambda: drill_ln_deposit(api),
+        "ln_withdraw": lambda: drill_ln_withdraw(api),
+        "ln_exhausted": lambda: drill_ln_exhausted(api),
+        "ln_expired": lambda: drill_ln_expired(api),
+    }
+    for name in DRILL_ORDER:
+        if name in selected:
+            runners[name]()
 
-    log(f"all drills passed: {', '.join(sorted(selected))}")
+    log(f"all drills passed: {', '.join(name for name in DRILL_ORDER if name in selected)}")
     return 0
 
 
