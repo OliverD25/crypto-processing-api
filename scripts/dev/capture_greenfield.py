@@ -243,6 +243,22 @@ def _snake(state: str) -> str:
     return "".join(out)
 
 
+#: Kept verbatim across re-captures. The `ln_*` payloads were recorded by the
+#: R4 spike rather than by this script, and a manifest that silently dropped
+#: that provenance on the next run would leave the corpus claiming a history it
+#: does not have.
+LIGHTNING_NOTE = (
+    "The ln_* payloads came from the R4 feasibility spike against BTCPay 2.4.2 with two "
+    "LND 0.19.3 nodes, before BTC_LN existed as an asset. Two things about them are the "
+    "spike's setup and not this service's configuration: the invoice is denominated in USD "
+    "(BTC_LN uses BTC), and the metadata says 'spike' rather than carrying a deposit id. "
+    "Everything the tests assert on — the BOLT11 destination, the payment hash as the "
+    "payment id, the PayoutLightningBlob proof, the absent routing fee on a completed "
+    "payout — is BTCPay's own shape and is unaffected. Re-record them with "
+    "LIGHTNING_ENABLED=true."
+)
+
+
 def write_manifest(captured: list[str]) -> None:
     write(
         "MANIFEST",
@@ -254,6 +270,7 @@ def write_manifest(captured: list[str]) -> None:
                 "Real Greenfield bodies, so the normalizer can be asserted against "
                 "BTCPay rather than against FakeBTCPay. See the module docstring."
             ),
+            "lightning_note": LIGHTNING_NOTE,
             "files": sorted(captured),
         },
     )

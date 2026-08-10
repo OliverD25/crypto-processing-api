@@ -1,0 +1,44 @@
+{
+  "additionalStatus": "None",
+  "amount": "0.0",
+  "archived": false,
+  "availableStatusesForManualMarking": [
+    "Settled",
+    "Invalid"
+  ],
+  "checkout": {
+    "defaultLanguage": null,
+    "defaultPaymentMethod": null,
+    "expirationMinutes": 60,
+    "lazyPaymentMethods": null,
+    "monitoringMinutes": 1440,
+    "paymentMethods": [
+      "BTC-LN",
+      "BTC-CHAIN"
+    ],
+    "paymentTolerance": 0.0,
+    "redirectAutomatically": false,
+    "redirectURL": null,
+    "speedPolicy": "MediumSpeed"
+  },
+  "checkoutLink": "http://127.0.0.1:14142/i/4vGicAUyqatEK4yMLw4RDJ",
+  "createdTime": 1786397069,
+  "currency": "USD",
+  "expirationTime": 1786400669,
+  "id": "4vGicAUyqatEK4yMLw4RDJ",
+  "metadata": {
+    "cpapi": true,
+    "spike": "q1"
+  },
+  "monitoringExpiration": 1786487069,
+  "paidAmount": "0",
+  "paymentMethods": [],
+  "receipt": {
+    "enabled": true,
+    "showPayments": true,
+    "showQR": true
+  },
+  "status": "New",
+  "storeId": "4PUHDEU3cm4Pxcxe5F7PpMLEcgC9Wfj9udDDCncC4XYV",
+  "type": "TopUp"
+}

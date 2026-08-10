@@ -1,0 +1,24 @@
+{
+  "date": 1786397245,
+  "destination": "lnbcrt1200u1p485s33pp55r5y5kaspkzpntzg2s9v2dsq8f8w9ty5vzjgm8scgeldlmfk25jqdq4wdcxj6m994eh2cmrv4ehxcqzzsxqrrsssp5ltm20alqf3jjyrd5rezs6rcprctcudhwew63xtdkypwn8js4zswq9qxpqysgqlvsl87ratxncevtf84fzm54lhhmuj7v65gtla6xgm45kkvhml9tx7leq80cd6s9lctmamexwd4f2tcu4728zqe8rc5uslf8g8glxwtcq8duwej",
+  "id": "4XguDeaQh8CE4itXkXaUMXgBRZdX",
+  "metadata": {
+    "cpapi": true,
+    "withdrawal_id": "spike-success"
+  },
+  "originalAmount": "0.0012",
+  "originalCurrency": "BTC",
+  "paymentProof": {
+    "Id": "a0e84a5bb00d8419ac48540ac536003a4ee2ac9460a48d9e18467edfed365524",
+    "Link": null,
+    "PaymentHash": "a0e84a5bb00d8419ac48540ac536003a4ee2ac9460a48d9e18467edfed365524",
+    "Preimage": "ac963c955512ecc26c6b0c235a5916a4c6b4be0eb654ae0d2bf61300f6e2210d",
+    "ProofType": "PayoutLightningBlob"
+  },
+  "payoutAmount": "0.0012",
+  "payoutCurrency": "BTC",
+  "payoutMethodId": "BTC-LN",
+  "pullPaymentId": null,
+  "revision": 0,
+  "state": "Completed"
+}

@@ -157,6 +157,150 @@ def test_the_payout_list_parses_and_normalizes() -> None:
         )
 
 
+# -- Lightning -------------------------------------------------------------
+#
+# Recorded by the R4 spike against the same 2.4.2 with an LND node attached.
+# The claims below are the ones the BTC_LN asset is built on, so each is
+# checked against BTCPay's bytes rather than against the design memo.
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("ln_payout_awaiting_payment", BackendPayoutState.PENDING),
+        ("ln_payout_stuck_awaiting_payment", BackendPayoutState.PENDING),
+        ("ln_payout_completed", BackendPayoutState.COMPLETED),
+    ],
+)
+def test_a_lightning_payout_normalizes_through_the_same_states(
+    name: str, expected: BackendPayoutState
+) -> None:
+    """No new canonical state was needed for Lightning.
+
+    That is the load-bearing claim of reusing `BtcpayPayoutBackend`: if a
+    Lightning payout reached a state the enum does not have, the withdrawal
+    state machine would need a second dialect and the reuse would be a fiction.
+    """
+    normalized = normalize_btcpay_payout(Payout.model_validate(load(name)))
+
+    assert normalized.state is expected
+    assert normalized.state in _PAYOUT_STATE_MAP
+    assert normalized.raw_state == load(name)["state"]
+
+
+def test_a_completed_lightning_payout_reports_the_payment_hash_as_its_txid() -> None:
+    """`PayoutLightningBlob` is a different proof shape from the on-chain one.
+
+    It has no `TransactionId`; `Id` carries the 32-byte payment hash. Reading
+    it wrongly would confirm a withdrawal with nothing to show the user, and —
+    because the hash is 64 hex characters and unique per invoice — it is what
+    satisfies the one-txid-per-withdrawal index.
+    """
+    raw = load("ln_payout_completed")
+    assert raw["paymentProof"]["ProofType"] == "PayoutLightningBlob"
+    assert raw["paymentProof"]["Id"] == raw["paymentProof"]["PaymentHash"]
+
+    normalized = normalize_btcpay_payout(Payout.model_validate(raw))
+    assert normalized.txid == raw["paymentProof"]["PaymentHash"]
+    assert len(normalized.txid or "") == 64
+
+
+def test_a_completed_lightning_payout_does_not_report_the_routing_fee() -> None:
+    """The reason fee-drift journaling had to ship with the asset.
+
+    BTCPay reports the payout at its face value in both amount fields, so the
+    routing fee the node really paid appears nowhere on the payout. Booked from
+    this payload alone, every Lightning withdrawal would leave the channel
+    balance a little below what the ledger claims, cumulatively and with no
+    entry explaining it — until Job C's insolvency signal fires with nothing an
+    operator can act on.
+
+    If a later BTCPay starts reporting a fee here, this test failing is the
+    news that the extra lookup can be dropped.
+    """
+    raw = load("ln_payout_completed")
+
+    assert raw["originalAmount"] == raw["payoutAmount"], (
+        "BTCPay now reports a different payout amount from the original; check whether "
+        "the difference is the routing fee before trusting the separate lookup"
+    )
+    assert "feeAmount" not in raw
+    assert "fee" not in raw
+
+
+def test_a_stuck_lightning_payout_carries_no_proof_at_all() -> None:
+    """Why the payment hash has to come from the invoice, not the payout.
+
+    A payout that never routed sits in `AwaitingPayment` with `paymentProof:
+    null`. The only handle on "did this payment ever leave the node" is the
+    payment hash, and the sole place it exists is inside the BOLT11 in
+    `destination`.
+    """
+    raw = load("ln_payout_stuck_awaiting_payment")
+
+    assert raw["paymentProof"] is None
+    normalized = normalize_btcpay_payout(Payout.model_validate(raw))
+    assert normalized.txid is None
+    assert normalized.destination.startswith("lnbcrt")
+
+
+def test_a_lightning_payout_is_denominated_in_btc() -> None:
+    """`amount` reaches `create_payout` as a BTC decimal string for both rails."""
+    raw = load("ln_payout_completed")
+    assert raw["payoutMethodId"] == "BTC-LN"
+    assert raw["payoutCurrency"] == "BTC"
+    assert Payout.model_validate(raw).payout_amount == "0.0012"
+
+
+def test_a_lightning_invoice_offers_a_bolt11_as_its_destination() -> None:
+    """`attach_invoice` writes `method.destination` to `deposits.address`.
+
+    For Lightning that is a BOLT11 payment request, not an address — which is
+    why `pooled_addresses` is false and why the address-reuse detectors are
+    documented as not applying.
+    """
+    methods = [
+        InvoicePaymentMethod.model_validate(m) for m in load("ln_invoice_payment_methods_new")
+    ]
+    lightning = next(m for m in methods if m.payment_method_id == "BTC-LN")
+
+    assert lightning.destination is not None
+    assert lightning.destination.startswith("lnbcrt")
+    assert lightning.payment_link == f"lightning:{lightning.destination}"
+
+
+def test_a_lightning_deposit_is_settled_the_moment_it_is_paid() -> None:
+    """No `Processing`, and therefore no confirmation wait.
+
+    The corpus has an `invoice_processing` payload for the on-chain rail and
+    deliberately none for Lightning: a settled HTLC has no deeper state to
+    reach. `apply_invoice_state` needs no change for it, which is the point.
+    """
+    invoice = Invoice.model_validate(load("ln_invoice_settled"))
+    assert invoice.status == "Settled"
+    assert invoice.additional_status == "None"
+
+
+def test_a_lightning_payment_id_is_the_payment_hash_not_a_txid_vout_pair() -> None:
+    """`Payment.txid` splits on the first dash for on-chain ids.
+
+    A Lightning payment id has no dash, so the property returns it unchanged.
+    Worth pinning: the unattributed-receive scan matches wallet transactions by
+    that prefix, and BTC_LN has no wallet for it to scan.
+    """
+    methods = [
+        InvoicePaymentMethod.model_validate(m) for m in load("ln_invoice_payment_methods_settled")
+    ]
+    lightning = next(m for m in methods if m.payment_method_id == "BTC-LN")
+    payment = lightning.payments[0]
+
+    assert "-" not in payment.id
+    assert payment.txid == payment.id
+    assert len(payment.id) == 64
+    assert payment.status == "Settled"
+    assert payment.value == "0.0015"
+
+
 @pytest.mark.parametrize(
     ("name", "expected_status"),
     [

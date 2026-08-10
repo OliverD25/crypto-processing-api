@@ -1,0 +1,18 @@
+{
+  "date": 1786397323,
+  "destination": "lnbcrt90m1p485snapp5660py3wggrp52judpz949a5qssrjsrvfapvymx2kau3m2jffyfdsdq4wdcxj6m994hx7un0w46x2cqzzsxqrrsssp5g8qcu4zfupxhl92wcdddq0xljxmx462fctp4a3d07ut5r7w6pnls9qxpqysgqcct9zf99zgy86fxnye8y06kdnt298eaazmqgpr99vvh6dpt4p589ft73de3kyyehm4f35n2n7nmnycuygv8j3tyxntzfslaq3cq3nacq4ydvy9",
+  "id": "2ZhySvQ16FjFde3UKjAHTx1BrvXK",
+  "metadata": {
+    "cpapi": true,
+    "withdrawal_id": "spike-noroute"
+  },
+  "originalAmount": "0.09",
+  "originalCurrency": "BTC",
+  "paymentProof": null,
+  "payoutAmount": "0.09",
+  "payoutCurrency": "BTC",
+  "payoutMethodId": "BTC-LN",
+  "pullPaymentId": null,
+  "revision": 0,
+  "state": "AwaitingPayment"
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "activated": true,
+    "additionalData": {
+      "invoiceId": "4f75a83444d34186c7aceb2a05df098b9fafa6a318c768127fea63c21c59088a",
+      "nodeInfo": null,
+      "paymentHash": "4f75a83444d34186c7aceb2a05df098b9fafa6a318c768127fea63c21c59088a",
+      "preimage": null
+    },
+    "amount": "0",
+    "currency": "BTC",
+    "destination": "lnbcrt1p485svwpp5fa66sdzy6dqcd3avav4qthcf3w06lf4rrrrksynlaf3uy8zepz9qdph2pskjepqw3hjqcmsv9cxjttjv4nhgetnwsszsnmjv3jhygzfgsazq2gcqzzsxqrrswsp5khgq3pqrzal42yp655s33mrp9yvkyvaxvpkqsm2kveys7j27rpts9qxpqysgqrkx8xfl3efv2hzjfumfdltpvwdxy0wg94d2alrftrj2xkxkrw30zsgucquafa5y6rehts7098xylnx4fkek6ehctq0zr24ke5a4fh9gps0yzu8",
+    "due": "0",
+    "paymentLink": "lightning:lnbcrt1p485svwpp5fa66sdzy6dqcd3avav4qthcf3w06lf4rrrrksynlaf3uy8zepz9qdph2pskjepqw3hjqcmsv9cxjttjv4nhgetnwsszsnmjv3jhygzfgsazq2gcqzzsxqrrswsp5khgq3pqrzal42yp655s33mrp9yvkyvaxvpkqsm2kveys7j27rpts9qxpqysgqrkx8xfl3efv2hzjfumfdltpvwdxy0wg94d2alrftrj2xkxkrw30zsgucquafa5y6rehts7098xylnx4fkek6ehctq0zr24ke5a4fh9gps0yzu8",
+    "paymentMethodFee": "0",
+    "paymentMethodId": "BTC-LN",
+    "paymentMethodPaid": "0",
+    "payments": [],
+    "rate": "64056.1",
+    "totalPaid": "0"
+  },
+  {
+    "activated": true,
+    "additionalData": {
+      "accountDerivation": null,
+      "feeMode": "MultiplePaymentsOnly",
+      "keyIndex": 0,
+      "keyPath": "0/0",
+      "payjoinEnabled": false,
+      "paymentMethodFeeRate": 100.0,
+      "recommendedFeeRate": 100.0
+    },
+    "amount": "0",
+    "currency": "BTC",
+    "destination": "bcrt1qkfycfk4zd2c907ychq502p5seze67nsny0kqxq",
+    "due": "0",
+    "paymentLink": "bitcoin:bcrt1qkfycfk4zd2c907ychq502p5seze67nsny0kqxq",
+    "paymentMethodFee": "0",
+    "paymentMethodId": "BTC-CHAIN",
+    "paymentMethodPaid": "0",
+    "payments": [],
+    "rate": "64056.1",
+    "totalPaid": "0"
+  }
+]

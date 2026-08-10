@@ -7,6 +7,14 @@
     "invoice_payment_methods_settled",
     "invoice_processing",
     "invoice_settled",
+    "ln_bolt11_samples",
+    "ln_invoice_new",
+    "ln_invoice_payment_methods_new",
+    "ln_invoice_payment_methods_settled",
+    "ln_invoice_settled",
+    "ln_payout_awaiting_payment",
+    "ln_payout_completed",
+    "ln_payout_stuck_awaiting_payment",
     "payout_awaiting_approval",
     "payout_awaiting_payment",
     "payout_cancelled",
@@ -14,6 +22,7 @@
     "payout_in_progress",
     "payout_list"
   ],
+  "lightning_note": "The ln_* payloads came from the R4 feasibility spike against BTCPay 2.4.2 with two LND 0.19.3 nodes, before BTC_LN existed as an asset. Two things about them are the spike's setup and not this service's configuration: the invoice is denominated in USD (BTC_LN uses BTC), and the metadata says 'spike' rather than carrying a deposit id. Everything the tests assert on — the BOLT11 destination, the payment hash as the payment id, the PayoutLightningBlob proof, the absent routing fee on a completed payout — is BTCPay's own shape and is unaffected. Re-record them with LIGHTNING_ENABLED=true.",
   "source": "regtest stack, deploy/docker-compose.regtest.yml",
   "why": "Real Greenfield bodies, so the normalizer can be asserted against BTCPay rather than against FakeBTCPay. See the module docstring."
 }
