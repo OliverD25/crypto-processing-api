@@ -236,6 +236,7 @@ reason that survives being read back in a year.
 | Date | Tool | Rule / CVE | Location | Decision | Reason |
 |---|---|---|---|---|---|
 | 2026-08-10 | Semgrep `p/python` | `python.sqlalchemy.security.audit.avoid-sqlalchemy-text` | [`scripts/make_upgrade_fixture.py`](scripts/make_upgrade_fixture.py), the two `recreate_scratch_database` statements | Suppressed inline | `CREATE DATABASE` and `DROP DATABASE` take an **identifier**, and PostgreSQL cannot bind an identifier as a parameter. There is no parameterized form of these statements. The interpolated value is the module constant `SCRATCH_DB`, which never sees input, and the script is a developer tool that builds a throwaway database. The custom `no-interpolated-sql-in-money-path` rule does not cover `scripts/` because nothing there touches the money path |
+| 2026-08-10 | gitleaks | `generic-api-key` | [`scripts/make_upgrade_fixture.py`](scripts/make_upgrade_fixture.py), `dedup_key="fixture-delivery-1"` | Allowlisted by value pattern in [`.gitleaks.toml`](.gitleaks.toml) | Not a credential. The rule fires on any identifier ending in `key` followed by an assignment; the value is a seeded webhook deduplication id. Allowlisted on the `fixture-` prefix rather than by excluding the file, so a real credential committed to the same script would still be caught |
 
 **Rules for this table.** A finding is either fixed or it appears here with a
 justification — never silenced with an inline ignore comment and no entry. If a

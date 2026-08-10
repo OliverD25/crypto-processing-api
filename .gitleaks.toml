@@ -20,4 +20,13 @@ description = "Known false positives, kept as narrow as possible"
 regexTarget = "line"
 regexes = [
   '''expected_amount="-?[0-9.]+"''',
+  # `dedup_key="fixture-delivery-1"` in scripts/make_upgrade_fixture.py. Same
+  # rule, same shape of mistake: an identifier ending in `key`, an assignment,
+  # and gitleaks calls the value a credential.
+  #
+  # Allowlisted by the `fixture-` prefix rather than by excluding the script.
+  # Every seeded value in that file carries the prefix on purpose, so this
+  # cannot hide a real credential unless someone names one `fixture-`, and a
+  # path exclusion would have hidden the whole file forever.
+  '''="fixture-[a-z0-9-]+"''',
 ]
