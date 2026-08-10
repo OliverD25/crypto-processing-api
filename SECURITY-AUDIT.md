@@ -475,12 +475,15 @@ Stated plainly, because an audit that only lists its strengths is marketing.
   and it is not detected.
 - **The definitive-failure release trusts BTCPay's answer about its own node.**
   A hold is released automatically only when the Lightning node reports no
-  record of the payment hash, or reports every route attempt failed, and only
-  after a balance call proves the node is actually reachable. A compromised or
-  lying BTCPay could produce that answer for a payment it did settle, releasing
-  a hold for money that left. This is inside threat 5's blast radius rather than
-  a new one — the same BTCPay could simply send the money elsewhere — but it is
-  a second thing that trusts it.
+  record of the payment hash or reports every route attempt failed; only after a
+  balance call proves the node is actually reachable; and, when the payout is
+  still live, only once the BOLT11 itself has expired — that last condition is
+  checked against the invoice this service decoded, not against anything BTCPay
+  says. A compromised or lying BTCPay could still produce a false `Failed` for a
+  payment it settled inside the invoice's lifetime and have the hold released.
+  This sits inside threat 5's blast radius rather than beside it — the same
+  BTCPay could simply send the money elsewhere — but it is a second thing that
+  trusts it.
 
 ## Reporting a vulnerability
 

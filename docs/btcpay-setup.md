@@ -163,12 +163,23 @@ PUT /api/v1/stores/{storeId}/payout-processors/LightningAutomatedPayoutSenderFac
 
 Without it, approved Lightning payouts are created and never paid.
 
-**One thing to know, and it is the reason this service has its own deadline.**
+**Two things to know, and together they are why this service has its own
+deadline and its own release rule.**
+
 `cancelPayoutAfterFailures` is accepted by this endpoint and then silently
-dropped from the echoed configuration. BTCPay does **not** give up on a payout it
-cannot route, however many times it fails — it retries for as long as the
-invoice lives. So `LN_PAYOUT_TIMEOUT_SECONDS` is what actually ends a stuck
-payout, and it is ours, not BTCPay's.
+dropped from the echoed configuration. BTCPay does **not** give up on a payout
+it cannot route, however many times it fails.
+
+And a payout it has picked up cannot be cancelled. An unroutable Lightning
+payout goes to `InProgress` and stays there; `DELETE /api/v1/payouts/{id}`
+answers `400 invalid-state`. It carries a `PayoutLightningBlob` whose preimage
+is all zeros, which is the tell that nothing settled.
+
+So a stuck Lightning withdrawal is ended by `LN_PAYOUT_TIMEOUT_SECONDS`, and
+the user's hold is returned automatically only once the **invoice has expired**
+— at which point no retry, BTCPay's or anyone's, can pay it. Until then the
+balance stays held and the operator gets one
+`withdrawal.hold_needs_attestation` alert.
 
 ## 4. What the runtime key gains
 

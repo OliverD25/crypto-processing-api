@@ -134,9 +134,24 @@ is worse than returning None.
 
 `ProvesDefinitiveFailure` is the *only* way an automatic release is permitted
 after a payout exists. Read `services/withdrawals.py`'s "Release legality"
-before implementing it. The bar is that your rail has actively said the payment
-does not exist — not that you failed to find it. Anything less is `None`, and
-`None` is always safe: the hold then waits for an admin exactly as it does now.
+before implementing it. Anything short of certainty is `None`, and `None` is
+always safe: the hold then waits for an admin exactly as it does now.
+
+The bar is higher than it first looks, and getting it wrong is a double
+payment. "The rail says this payment failed" answers *has money left yet*. The
+question you actually have to answer is *can money still leave*, and those come
+apart whenever the rail has not stopped trying. `LightningPayoutBackend` needs
+two different arguments for the two cases:
+
+- the payout was **cancelled** — a cancelled payout is never retried, so the
+  node's verdict is the whole answer;
+- the payout is **still live** — BTCPay refuses to cancel one it has already
+  picked up, so the proof has to be that the *destination* is dead. An expired
+  BOLT11 cannot be paid by anyone, whatever retries.
+
+If your rail can keep trying and cannot be stopped, find the equivalent of that
+second argument before returning a proof. If there is no equivalent, return
+`None` and let a human decide; that is what the attestation is for.
 
 ### Two optional profile hooks
 
@@ -467,12 +482,18 @@ A BOLT11 invoice that was alive when the user asked is often dead by the time an
 operator approves, and a payout against an expired one can never be paid. Hence
 `submission_guard`, run twice.
 
-**A rail can fail routinely and never say so.** BTCPay's Lightning processor
-retries an unroutable payout for as long as the invoice lives and never marks it
-failed, so the row sat `submitted` forever with the balance held. Hence
-`submitted_timeout_seconds`, and — because route-not-found is an everyday event
-rather than an incident — `ProvesDefinitiveFailure`, so the ordinary case does
-not become an admin queue.
+**A rail can fail routinely, never say so, and refuse to be stopped.** BTCPay's
+Lightning processor takes an unroutable payout, parks it `InProgress` and
+leaves it there — and `DELETE` on one of those answers 400 `invalid-state`.
+Hence `submitted_timeout_seconds`, and — because route-not-found is an everyday
+event rather than an incident — `ProvesDefinitiveFailure`, so the ordinary case
+does not become an admin queue.
+
+Both of those facts were found by drill 10 against a real stack, *after* a
+two-day feasibility spike had recorded the opposite. The spike watched a payout
+with no processor configured and saw it wait politely in `AwaitingPayment`; the
+real thing has a processor. If you are adding an asset, assume the same: a
+spike tells you what is possible, and only the drill tells you what happens.
 
 ### The other two backends
 

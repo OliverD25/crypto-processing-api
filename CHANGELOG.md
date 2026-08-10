@@ -20,12 +20,15 @@ Notable changes to this project. The format follows
   `hot_wallet`. When the two agree the extra posting is zero and omitted, so
   on-chain BTC produces the same entries as before. Lightning routing fees are
   read from the node and rounded **up** to whole satoshis.
-- **A deadline for payouts that will never complete.** BTCPay's Lightning
-  processor retries an unroutable payout for as long as the invoice lives and
-  never marks it failed, so `LN_PAYOUT_TIMEOUT_SECONDS` cancels it. Where the
-  node can prove the payment never left, the hold is released automatically
-  with that proof recorded as the attestation; where it cannot, the hold waits
-  for an admin exactly as before and an alert says so.
+- **A deadline for payouts that will never complete.** BTCPay parks an
+  unroutable Lightning payout in `InProgress`, never marks it failed, and
+  refuses to cancel it (`DELETE` answers 400 `invalid-state`), so a stuck
+  withdrawal held the user's balance with nothing anywhere saying why.
+  `LN_PAYOUT_TIMEOUT_SECONDS` ends it. The hold is then returned automatically
+  only on proof that no retry can still spend it — for a cancelled payout, the
+  node's verdict; for one still live, the node's verdict *and* an expired
+  BOLT11, which nobody can pay. Where neither holds the balance stays held for
+  an admin, exactly as before, and one alert says so.
 - Two optional backend capabilities (`ReportsActualFee`,
   `ProvesDefinitiveFailure`) and two optional profile hooks
   (`submission_guard`, `submitted_timeout_seconds`). All four are additive; a

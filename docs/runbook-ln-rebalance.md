@@ -18,11 +18,21 @@ Two signals, and they mean opposite things.
 **Outbound liquidity is running low.** `GET /v1/admin/reconciliation` shows the
 `BTC_LN` line's `chain_balance` — that is outbound channel liquidity, the only
 Lightning money that can pay a withdrawal. When it drops toward
-`user_obligations`, withdrawals start failing to route and the payout deadline
-starts cancelling them. Watch for `withdrawal.hold_needs_attestation` alerts and
-for drill-10-shaped failures in production: a payout that sits `submitted` and
-then refunds itself with a definitive-failure proof is telling you the channel
-is empty, not that anything is broken.
+`user_obligations`, withdrawals stop routing.
+
+What that looks like from the outside is worth knowing in advance, because none
+of it is an error message. A withdrawal reaches `broadcast` and stays there:
+BTCPay has taken the payout and cannot route it, and it will not mark it failed
+or let it be cancelled. After `LN_PAYOUT_TIMEOUT_SECONDS` you get one
+`withdrawal.hold_needs_attestation` alert. The balance stays held until the
+user's invoice expires, at which point the hold is returned automatically with a
+proof recorded on the row. A run of those is telling you the channel is empty —
+not that anything is broken.
+
+You do not have to wait for the invoice. An admin who has checked can release
+sooner with `POST /v1/admin/withdrawals/{id}/release`, and the honest
+attestation is that the node reports the payment failed and the channel has no
+outbound capacity to retry with.
 
 **Inbound liquidity is running low.** Nothing alerts on this, because it is not
 a solvency problem — it is a deposits problem. Symptom: users report that paying
