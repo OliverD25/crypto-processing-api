@@ -132,6 +132,12 @@ def run_locked(job: Job) -> Any:
 
 def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
     factory = get_session_factory()
+    # Built before the job list because Job C needs it too. Without this the
+    # hourly invariant job called check_invariants with tron defaulting to
+    # None, _chain_balance returned no source for USDT, and `insolvent`
+    # short-circuited to False — so USDT insolvency was never once computed by
+    # the background job. Only the on-demand admin endpoint passed it.
+    tron = get_tron_gateway() if settings.tron_configured else None
     jobs: list[Job] = [
         Job(
             name="webhooks",
@@ -181,7 +187,7 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             name="invariants",
             lock_key=JOB_INVARIANTS,
             interval_seconds=settings.reconcile_invariant_interval_seconds,
-            run=lambda: reconciliation.check_invariants(factory, gateway, settings),
+            run=lambda: reconciliation.check_invariants(factory, gateway, settings, tron=tron),
         ),
         Job(
             name="orphan_scan",
@@ -199,8 +205,7 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
 
     # TRON jobs only exist once a hot wallet is configured. A BTC-only
     # deployment should not be making calls to TronGrid at all.
-    if settings.tron_configured:
-        tron = get_tron_gateway()
+    if tron is not None:
         monitor = GasMonitor()
         jobs.extend(
             [
