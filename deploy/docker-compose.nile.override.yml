@@ -1,0 +1,64 @@
+# USDT-TRC20 against the TRON Nile testnet.
+#
+#   docker compose -f deploy/docker-compose.regtest.yml \
+#                  -f deploy/docker-compose.nile.override.yml up -d
+#
+# There is no TRON regtest. The USDt plugin ships Nile support, so testnet is
+# as local as USDT gets, and it needs the internet, a TronGrid API key and
+# faucet funds. The BTC side of the stack stays fully offline either way.
+#
+# ---------------------------------------------------------------------------
+# What this file cannot do
+# ---------------------------------------------------------------------------
+#
+# Installing and configuring the USDt plugin is a BTCPay UI operation. Greenfield
+# exposes no plugin-management API, and the plugin's own store settings
+# (the address pool in particular) are not in the Greenfield schema either. So
+# after bringing this stack up, a human does the following once:
+#
+#  1. BTCPay > Server Settings > Plugins > install "USDt" and restart BTCPay.
+#  2. BTCPay > Server Settings > USDt: set the TRON JSON-RPC endpoint to
+#     https://nile.trongrid.io/jsonrpc and paste the TronGrid API key. Set the
+#     USDT smart-contract address for Nile.
+#  3. Store > Settings > USDt: paste the pre-generated TRON address pool, one
+#     address per line. Provision at least 20 — the pool size is the maximum
+#     number of USDT deposits that can be open at once, and running out
+#     surfaces to the platform as 503 DEPOSIT_TEMPORARILY_UNAVAILABLE.
+#  4. Restart the api and worker so payment-method discovery sees the new
+#     method and re-enables the USDT_TRC20 asset:
+#       docker compose -f deploy/docker-compose.regtest.yml \
+#                      -f deploy/docker-compose.nile.override.yml \
+#                      up -d --force-recreate api worker
+#
+# Until step 1 is done the asset stays disabled and every USDT deposit request
+# answers 503. That is deliberate: an enabled asset with no payment method
+# would create invoices for an address nobody is watching.
+
+services:
+  btcpayserver:
+    environment:
+      # The plugin reads its endpoint from its own settings, not from here.
+      # This only makes the intent visible in `docker compose config`.
+      BTCPAY_USDT_NETWORK: nile
+
+  api: &tron_env
+    environment:
+      TRON_NETWORK: nile
+      # Required. Keyless TronGrid is throttled unpredictably, and what gets
+      # throttled is the check that a withdrawal really happened.
+      TRONGRID_API_KEY: ${TRONGRID_API_KEY:?set TRONGRID_API_KEY to a TronGrid key}
+      # The Nile USDT contract. The default in config.py is format-checked but
+      # not confirmed against a live node — set it to whatever the plugin is
+      # configured with.
+      USDT_CONTRACT_ADDRESS: ${USDT_CONTRACT_ADDRESS:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
+      # The address USDT is sent *from*. Verification compares every transfer's
+      # sender against this, so a wrong value rejects every real withdrawal.
+      TRON_HOT_WALLET_ADDRESS: ${TRON_HOT_WALLET_ADDRESS:?set TRON_HOT_WALLET_ADDRESS}
+      # Nile blocks are ~3s; 19 is roughly the solidified-block distance.
+      TRON_CONFIRMATIONS: "19"
+      # Not shortened for USDT. A short window makes a late payment land on
+      # another user's reserved address, which is the failure this whole
+      # milestone is built around.
+      DEPOSIT_INVOICE_EXPIRY_MIN_USDT: "60"
+
+  worker: *tron_env
