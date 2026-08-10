@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from crypto_processing_api.config import Settings
+from crypto_processing_api.core.addresses import AddressError
 from crypto_processing_api.core.amounts import to_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
@@ -72,6 +73,7 @@ def submit_approved(
             asset = withdrawals.get_asset(session, withdrawal.asset_id, require_enabled=False)
             decimals = asset.decimals
             gross = withdrawal.amount_gross
+            destination = withdrawal.destination_address
             profile = asset_registry.profile_for(asset.id)
             fee_policy = profile.fee_policy(
                 asset_registry.RegistryContext(settings=settings, asset=asset, gateway=gateway)
@@ -93,6 +95,27 @@ def submit_approved(
             report.failed += 1
             logger.warning("submit.dust_at_submission", withdrawal_id=str(withdrawal_id))
             continue
+
+        if profile.submission_guard is not None:
+            # The destination was checked at request time, but `pending_approval`
+            # has no horizon: a BOLT11 invoice that was good when the user asked
+            # can be hours dead by the time an operator approves. Submitting
+            # against one creates a payout BTCPay can never pay.
+            try:
+                profile.submission_guard(settings, destination, quote.net)
+            except AddressError as exc:
+                _abandon_before_sending(
+                    session_factory,
+                    withdrawal_id,
+                    reason=f"the destination is no longer usable: {exc}",
+                )
+                report.failed += 1
+                logger.warning(
+                    "submit.destination_expired",
+                    withdrawal_id=str(withdrawal_id),
+                    error=str(exc),
+                )
+                continue
 
         try:
             with session_factory() as session:

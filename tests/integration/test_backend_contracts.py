@@ -22,14 +22,17 @@ from crypto_processing_api.gateway.btcpay_client import BTCPayUnavailable
 from crypto_processing_api.gateway.trongrid import TronGridError
 from crypto_processing_api.ledger.models import Withdrawal, WithdrawalStatus
 from crypto_processing_api.services.asset_registry import (
+    BACKEND_BTCPAY_LN,
     BtcpayWalletCustody,
     DynamicChainFee,
     FlatFee,
+    LightningNodeCustody,
     TronGridCustody,
 )
 from crypto_processing_api.services.backends import (
     BACKEND_MANUAL_TRON,
     BtcpayPayoutBackend,
+    LightningPayoutBackend,
     ManualTronBackend,
     TronTxVerifier,
 )
@@ -40,8 +43,8 @@ from crypto_processing_api.testing.contracts import (
     OperatorBackendContract,
 )
 from tests.fake_tron import HOT_WALLET, USDT_CONTRACT, FakeTronGrid
-from tests.fakes import FakeBTCPay, regtest_address
-from tests.integration.conftest import BTC, USDT
+from tests.fakes import FakeBTCPay, mint_bolt11, regtest_address
+from tests.integration.conftest import BTC, BTC_LN, USDT
 
 DEST = regtest_address("contract-destination")
 TRON_DEST = "TN3W4H6rK2ce4vX9YnFQHwKENnHjoxb3m9"
@@ -90,6 +93,69 @@ class TestBtcpayPayoutBackendContract(AutomatedBackendContract):
             fake_btcpay.complete_payout(payout_id)
 
         return complete
+
+
+# -- LightningPayoutBackend ------------------------------------------------
+
+
+class TestLightningPayoutBackendContract(AutomatedBackendContract):
+    """The acceptance test of the whole extension contract.
+
+    R4's claim is that a new asset can be added through the contract without
+    the contract moving. The evidence is this class: the same suite, not
+    subclassed differently, not with an overridden assertion, run against a
+    backend that talks to a payment rail with different money, different
+    failure modes and different proof of payment.
+
+    It passes because every method the money path uses is inherited from
+    `BtcpayPayoutBackend` unchanged. What Lightning adds — the routing fee and
+    the definitive-failure proof — is deliberately outside this suite, since a
+    contract that demanded them would be a contract most rails could only meet
+    by lying. Those two are covered in `tests/unit/test_lightning_backend.py`.
+    """
+
+    @pytest.fixture
+    def backend(self, fake_btcpay: FakeBTCPay) -> LightningPayoutBackend:
+        return LightningPayoutBackend(
+            fake_btcpay, payout_method_id="BTC-LN", crypto_code="BTC", network="regtest"
+        )
+
+    @pytest.fixture
+    def withdrawal(self, session: Session, lightning: None) -> Withdrawal:
+        return make_withdrawal_row(
+            session,
+            asset=BTC_LN,
+            destination=mint_bolt11(amount_sat=NET),
+            backend=BACKEND_BTCPAY_LN,
+        )
+
+    @pytest.fixture
+    def simulate_completion(self, fake_btcpay: FakeBTCPay) -> Callable[[str], None]:
+        def complete(payout_id: str) -> None:
+            fake_btcpay.complete_payout(payout_id)
+
+        return complete
+
+
+class TestLightningFlatFeeContract(FeePolicyContract):
+    @pytest.fixture
+    def policy(self) -> FlatFee:
+        return FlatFee(flat_fee=100)
+
+    @pytest.fixture
+    def dust_gross(self) -> int:
+        return 100
+
+
+class TestLightningNodeCustodyContract(CustodySourceContract):
+    @pytest.fixture
+    def source(self, fake_btcpay: FakeBTCPay) -> LightningNodeCustody:
+        return LightningNodeCustody(fake_btcpay, "BTC")
+
+    @pytest.fixture
+    def broken_source(self, fake_btcpay: FakeBTCPay) -> LightningNodeCustody:
+        fake_btcpay.fail_next["get_lightning_balance"] = BTCPayUnavailable("the node is down")
+        return LightningNodeCustody(fake_btcpay, "BTC")
 
 
 # -- ManualTronBackend -----------------------------------------------------

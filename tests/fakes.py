@@ -59,6 +59,71 @@ def regtest_address(seed: str, *, hrp: str = "bcrt") -> str:
     return hrp + "1" + "".join(BECH32_CHARSET[value] for value in data + tail)
 
 
+def mint_bolt11(
+    *,
+    amount_sat: int | None = None,
+    expiry_seconds: int = 3600,
+    timestamp: int | None = None,
+    payment_hash: str | None = None,
+    prefix: str = "bcrt",
+) -> str:
+    """Build a decodable BOLT11 invoice with the properties a test needs.
+
+    The committed corpus has real invoices from a real LND, and they are what
+    the decoder is checked against. They cannot be used for anything about
+    *time*, though: they were signed on a particular afternoon and are long
+    expired, so "an invoice that is still alive" is a thing only a minted one
+    can be.
+
+    The signature bytes are filler. Nothing in this service verifies a BOLT11
+    signature — BTCPay's node does that when it pays — so what has to be real
+    here is the checksum, the amount encoding and the tagged fields, and all
+    three are.
+    """
+    digest = payment_hash or hashlib.sha256(f"{amount_sat}:{expiry_seconds}".encode()).hexdigest()
+    now = timestamp if timestamp is not None else int(datetime.now(UTC).timestamp())
+
+    amount_part = ""
+    if amount_sat is not None:
+        # `n` is nano-bitcoin, a hundred millisatoshi, so one satoshi is ten of
+        # them. Chosen over `u` because it can express any whole satoshi.
+        amount_part = f"{amount_sat * 10}n"
+
+    data = [(now >> (5 * (6 - index))) & 31 for index in range(7)]
+    data += _tag("p", [((int(digest, 16) << 4) >> (5 * (51 - i))) & 31 for i in range(52)])
+    data += _tag("x", _minimal_groups(expiry_seconds))
+    data += [0] * 104  # where a 65-byte signature would be
+
+    hrp = f"ln{prefix}{amount_part}"
+    checksum = _bech32_polymod(_bech32_hrp_expand(hrp) + data + [0] * 6) ^ BECH32_CONST
+    tail = [(checksum >> 5 * (5 - index)) & 31 for index in range(6)]
+    return hrp + "1" + "".join(BECH32_CHARSET[value] for value in data + tail)
+
+
+def _tag(character: str, value: list[int]) -> list[int]:
+    length = len(value)
+    return [BECH32_CHARSET.index(character), length >> 5, length & 31, *value]
+
+
+def _minimal_groups(value: int) -> list[int]:
+    groups: list[int] = []
+    while value:
+        groups.insert(0, value & 31)
+        value >>= 5
+    return groups or [0]
+
+
+#: A real regtest invoice from the committed corpus, used as the destination
+#: FakeBTCPay hands out for a Lightning deposit. Constant rather than minted
+#: per invoice because a BOLT11 is not an address: there is nothing to derive.
+FAKE_LN_DESTINATION = (
+    "lnbcrt1p485svwpp5fa66sdzy6dqcd3avav4qthcf3w06lf4rrrrksynlaf3uy8zepz9qdph2pskjepqw3hjq"
+    "cmsv9cxjttjv4nhgetnwsszsnmjv3jhygzfgsazq2gcqzzsxqrrswsp5khgq3pqrzal42yp655s33mrp9yvky"
+    "vaxvpkqsm2kveys7j27rpts9qxpqysgqrkx8xfl3efv2hzjfumfdltpvwdxy0wg94d2alrftrj2xkxkrw30zs"
+    "gucquafa5y6rehts7098xylnx4fkek6ehctq0zr24ke5a4fh9gps0yzu8"
+)
+
+
 @dataclass
 class FakePayment:
     id: str
@@ -305,12 +370,17 @@ class FakeBTCPay:
         number = next(self._invoice_ids)
         now = datetime.now(UTC)
         expires = now + timedelta(minutes=expiration_minutes or 60)
+        method = (payment_methods or self.payment_methods)[0]
         invoice = FakeInvoice(
             id=f"inv-{number}",
             store_id=self.store_id,
             metadata=dict(metadata),
-            payment_method_id=(payment_methods or self.payment_methods)[0],
-            destination=regtest_address(f"invoice-{number}"),
+            payment_method_id=method,
+            # Lightning hands out a payment request, not an address, and the
+            # difference reaches `deposits.address` unchanged.
+            destination=(
+                FAKE_LN_DESTINATION if method == LN_METHOD else regtest_address(f"invoice-{number}")
+            ),
             currency=currency,
             created_time=int(now.timestamp()),
             expiration_time=int(expires.timestamp()),

@@ -19,6 +19,7 @@ from crypto_processing_api.api.middleware import (
 )
 from crypto_processing_api.config import Settings
 from crypto_processing_api.core import auth
+from crypto_processing_api.core.addresses import AddressError
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.db import db_session
@@ -110,9 +111,20 @@ def create_withdrawal(
         # A quote at request time, for the dust check only. The fee that gets
         # charged is quoted again at submission, because that is when it is
         # fixed.
-        profile.fee_policy(registry_context).quote(gross=gross)
+        quote = profile.fee_policy(registry_context).quote(gross=gross)
     except fees.DustAmount as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+    if profile.submission_guard is not None:
+        # Checks that need the net amount — for Lightning, that the invoice
+        # asks for exactly what will be sent, and that it is still alive. Run
+        # here as well as at submission so the caller finds out now, with a
+        # 422 they can act on, rather than through a withdrawal that is
+        # accepted and then quietly refunded.
+        try:
+            profile.submission_guard(settings, payload.destination_address, quote.net)
+        except AddressError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
     # An operator-sweep asset has nothing that can send it — the USDt plugin has
     # no payout handler of any kind — so every one of its withdrawals is a task

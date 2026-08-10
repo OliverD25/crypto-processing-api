@@ -63,6 +63,31 @@ class Settings(BaseSettings):
     seed_btc_withdrawal_min: int = Field(default=1, ge=1)
     seed_btc_withdrawal_flat_fee: int = Field(default=0, ge=0)
 
+    #: Lightning is off unless a deployment asks for it, and the default is the
+    #: security decision rather than a convenience. Enabling it means the
+    #: bootstrap requests `btcpay.server.canuseinternallightningnode`, which is
+    #: a **server-level** BTCPay permission — the one kind this project
+    #: otherwise refuses to hold. See docs/security.md, threat 5.
+    lightning_enabled: bool = False
+    seed_ln_payment_method: str = "BTC-LN"
+    seed_ln_withdrawal_auto_limit: int = Field(default=200_000, ge=0)
+    seed_ln_withdrawal_daily_cap: int = Field(default=2_000_000, ge=0)
+    seed_ln_withdrawal_user_daily_cap: OptionalInt = None
+    #: Above the flat fee on purpose: a minimum below it would accept requests
+    #: that deliver nothing and be refused as dust a moment later.
+    seed_ln_withdrawal_min: int = Field(default=1_000, ge=1)
+    #: A flat service charge, because a routing fee cannot be estimated before
+    #: the route is found. What the route actually cost is journalled at settle
+    #: time from the node, so this number is revenue and not a cost estimate.
+    seed_ln_withdrawal_flat_fee: int = Field(default=100, ge=0)
+    deposit_invoice_expiry_min_ln: int = Field(default=30, ge=1)
+    #: How long a Lightning payout may sit in BTCPay's `AwaitingPayment` before
+    #: this service cancels it. BTCPay's Lightning processor retries a payout it
+    #: cannot route for as long as the invoice lives and never moves it to a
+    #: failed state, so without a timeout the withdrawal stays `submitted`
+    #: forever with the user's balance held.
+    ln_payout_timeout_seconds: int = Field(default=900, ge=60)
+
     seed_usdt_payment_method: str = "USDT_TRC20"
     seed_usdt_withdrawal_auto_limit: int = Field(default=200_000_000, ge=0)
     seed_usdt_withdrawal_daily_cap: int = Field(default=2_000_000_000, ge=0)
@@ -140,6 +165,13 @@ class Settings(BaseSettings):
         if self.seed_usdt_withdrawal_auto_limit > self.seed_usdt_withdrawal_daily_cap:
             raise ValueError(
                 "SEED_USDT_WITHDRAWAL_AUTO_LIMIT above SEED_USDT_WITHDRAWAL_DAILY_CAP would let a "
+                "single withdrawal exceed the 24h cap"
+            )
+        # The Lightning float is a second, separate loss ceiling: channel
+        # balance is its own pot of money and the BTC caps say nothing about it.
+        if self.seed_ln_withdrawal_auto_limit > self.seed_ln_withdrawal_daily_cap:
+            raise ValueError(
+                "SEED_LN_WITHDRAWAL_AUTO_LIMIT above SEED_LN_WITHDRAWAL_DAILY_CAP would let a "
                 "single withdrawal exceed the 24h cap"
             )
         if self.environment == "production" and self.bitcoin_network != "mainnet":

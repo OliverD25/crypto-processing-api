@@ -994,12 +994,16 @@ def due_for_submission(session: Session, *, limit: int = 20) -> list[uuid.UUID]:
     method and asks Greenfield to pay out a token it has no handler for. The
     payout is rejected, `resolve_stuck` finds nothing and returns the row to
     `approved`, and the whole cycle repeats every ten seconds.
+
+    It is a set rather than one name because on-chain and Lightning are two
+    rails behind one payout API. Both are this worker's, and which one a row
+    used still has to be readable off the row afterwards.
     """
     rows = session.execute(
         select(Withdrawal.id)
         .where(
             Withdrawal.status == WithdrawalStatus.APPROVED,
-            Withdrawal.backend == BACKEND_BTCPAY,
+            Withdrawal.backend.in_(tuple(asset_registry.BTCPAY_PAYOUT_BACKENDS)),
         )
         .order_by(Withdrawal.created_at)
         .limit(limit)
@@ -1024,7 +1028,7 @@ def due_for_polling(session: Session, *, limit: int = 100) -> list[uuid.UUID]:
                     WithdrawalStatus.BROADCAST,
                 )
             ),
-            Withdrawal.backend == BACKEND_BTCPAY,
+            Withdrawal.backend.in_(tuple(asset_registry.BTCPAY_PAYOUT_BACKENDS)),
             Withdrawal.backend_ref.isnot(None),
         )
         .order_by(Withdrawal.updated_at)
@@ -1059,7 +1063,7 @@ def stuck_submitting(
         select(Withdrawal.id)
         .where(
             Withdrawal.status == WithdrawalStatus.SUBMITTING,
-            Withdrawal.backend == BACKEND_BTCPAY,
+            Withdrawal.backend.in_(tuple(asset_registry.BTCPAY_PAYOUT_BACKENDS)),
             Withdrawal.backend_ref.is_(None),
             Withdrawal.updated_at < cutoff,
         )

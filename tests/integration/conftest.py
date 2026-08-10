@@ -33,6 +33,7 @@ from crypto_processing_api.ledger import service
 from crypto_processing_api.ledger.invariants import assert_ledger_consistent
 from crypto_processing_api.ledger.models import AccountKind, Base, EntryKind
 from crypto_processing_api.main import create_app
+from crypto_processing_api.services.asset_registry import get_registry
 from tests.conftest import (
     FAKE_STORE_ID,
     FAKE_WEBHOOK_SECRET,
@@ -44,6 +45,7 @@ from tests.fakes import FakeBTCPay
 TestClientResponse = httpx.Response
 
 BTC = "BTC"
+BTC_LN = "BTC_LN"
 USDT = "USDT_TRC20"
 
 
@@ -152,6 +154,32 @@ def fake_btcpay() -> FakeBTCPay:
         store_id=settings.btcpay_store_id or FAKE_STORE_ID,
         webhook_secret=settings.btcpay_webhook_secret or FAKE_WEBHOOK_SECRET,
     )
+
+
+@pytest.fixture
+def lightning(session: Session, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Run this test with Lightning switched on.
+
+    The suite's default is off, matching the default deployment, so that what
+    CI proves green is the configuration most people run. Turning it on for the
+    whole suite would leave the shipped default the untested one.
+
+    Both caches have to go: `get_settings` because the flag is read from the
+    environment once, and `get_registry` because it closes over the settings at
+    startup on purpose — an asset that could appear halfway through a process
+    would not be a registry.
+    """
+    monkeypatch.setenv("LIGHTNING_ENABLED", "true")
+    get_settings.cache_clear()
+    get_registry.cache_clear()
+
+    service.seed_assets(session, asset_specs(get_settings()))
+    session.commit()
+    yield
+
+    # monkeypatch removes the variable; these make the next test read it again.
+    get_settings.cache_clear()
+    get_registry.cache_clear()
 
 
 @pytest.fixture

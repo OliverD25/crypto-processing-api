@@ -28,13 +28,16 @@ DEFAULT_ALEMBIC_INI = "alembic.ini"
 
 
 def asset_specs(settings: Settings) -> list[AssetSpec]:
-    """Seed values for the two MVP assets.
+    """Seed values for the assets this build is configured to operate.
 
     Read once, at `migrate`. Afterwards the `assets` rows are the only source
     of truth for limits and fees — two places describing the same number is
     how a limit ends up silently disagreeing with itself.
+
+    BTC_LN appears only when Lightning is switched on, so a deployment that
+    never asked for it has no BTC_LN row at all rather than a disabled one.
     """
-    return [
+    specs = [
         AssetSpec(
             id="BTC",
             display_name="Bitcoin",
@@ -65,6 +68,30 @@ def asset_specs(settings: Settings) -> list[AssetSpec]:
             invoice_currency="USDT",
         ),
     ]
+    if settings.lightning_enabled:
+        specs.append(
+            AssetSpec(
+                id="BTC_LN",
+                display_name="Bitcoin (Lightning)",
+                decimals=8,
+                unit_name="sat",
+                btcpay_payment_method=settings.seed_ln_payment_method,
+                withdrawal_auto_limit=settings.seed_ln_withdrawal_auto_limit,
+                withdrawal_daily_cap=settings.seed_ln_withdrawal_daily_cap,
+                withdrawal_user_daily_cap=settings.seed_ln_withdrawal_user_daily_cap,
+                withdrawal_min=settings.seed_ln_withdrawal_min,
+                withdrawal_flat_fee=settings.seed_ln_withdrawal_flat_fee,
+                # No address to reserve: the destination is a single-use
+                # invoice, minted per deposit and payable exactly once.
+                pooled_addresses=False,
+                invoice_currency="BTC",
+                # Shorter than the on-chain default. A BOLT11 invoice locks
+                # inbound liquidity for as long as it lives, and a payer who
+                # has not acted in half an hour is not about to.
+                deposit_expiry_minutes=settings.deposit_invoice_expiry_min_ln,
+            )
+        )
+    return specs
 
 
 def _alembic_config(settings: Settings, ini_path: str | None) -> Config:
