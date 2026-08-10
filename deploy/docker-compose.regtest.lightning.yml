@@ -1,0 +1,208 @@
+# Lightning for the regtest stack: three LND nodes and a store that can use one.
+#
+# An overlay, not a replacement. Lightning is opt-in in the service and it is
+# opt-in here for the same reason — a developer working on BTC or USDT should
+# not have to boot three extra nodes, and the default stack should stay the
+# configuration most deployments actually run.
+#
+#   docker compose -f deploy/docker-compose.regtest.yml \
+#                  -f deploy/docker-compose.regtest.lightning.yml up -d
+#   sh scripts/dev/ln_bootstrap.sh
+#   LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py
+#   docker compose -f deploy/docker-compose.regtest.yml \
+#                  -f deploy/docker-compose.regtest.lightning.yml \
+#                  up -d --force-recreate api worker
+#   python scripts/dev/smoke_test.py --drill lightning
+#
+# Three nodes, and the third one is not padding:
+#
+#   lnd-btcpay   the store's node. Receives deposits, sends withdrawals.
+#   lnd-user     the depositor. Opens a large channel *to* us, so paying a
+#                deposit invoice moves its balance onto our side.
+#   lnd-payee    the withdrawal destination, behind a deliberately small
+#                channel *from* us.
+#
+# Two nodes cannot express a liquidity failure. If deposits and withdrawals
+# share one channel, every satoshi a user deposits becomes a satoshi we can pay
+# back to them, so a withdrawal can never exceed what we can route and drill 10
+# would be untestable. Splitting the counterparty makes the payee's inbound
+# capacity the binding constraint, which is what runs out first in real life
+# too.
+#
+# Three facts about this file were paid for by the R4 spike:
+#
+# 1. LND 0.18.x — the version contemporary with BTCPay 2.4.2 — cannot talk to
+#    Bitcoin Core 29.2 at all. `getnetworkinfo.warnings` became an array in Core
+#    29 and 0.18's struct expects a string, so it refuses to start. 0.19.3 is
+#    the floor, and it is pinned by digest rather than by tag because a tag that
+#    moves under a nightly is a green build that proves nothing.
+# 2. The btcpayserver/lnd image curls `LND_REST_LISTEN_HOST` from its own init
+#    script and never defines it. Left unset, the wallet is never created and
+#    the container restart-loops with a message about something else entirely.
+# 3. bitcoind needs ZMQ here. LND requires it; NBXplorer polls RPC instead,
+#    which is why the base stack does not turn it on.
+#
+# No LND port is published to the host. Everything that talks to these nodes is
+# on this network, and `docker compose exec` is how the drills reach them.
+
+x-lnd: &lnd
+  # btcpayserver/lnd:v0.19.3-beta, pinned by digest.
+  image: btcpayserver/lnd@sha256:719ff832f51b31d58966a303adffb24df48450dafb16a96b9eaf3a16aadbefaa
+  restart: unless-stopped
+  depends_on:
+    bitcoind:
+      condition: service_started
+  expose:
+    - "8080"
+    - "10009"
+    - "9735"
+  healthcheck:
+    # `/v1/state` answers before a wallet exists, which is exactly when
+    # ln_bootstrap.sh needs to reach it.
+    test: ["CMD-SHELL", "curl -sk -o /dev/null https://127.0.0.1:8080/v1/state || exit 1"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+
+x-lnd-env: &lnd_env
+  LND_CHAIN: "btc"
+  LND_ENVIRONMENT: "regtest"
+  # Container-internal. Nothing binds 8080 on the host; finding 2 above is why
+  # this has to be set at all.
+  LND_REST_LISTEN_HOST: "https://127.0.0.1:8080"
+
+services:
+  bitcoind:
+    environment:
+      BITCOIN_NETWORK: regtest
+      CREATE_WALLET: "false"
+      BITCOIN_WALLETDIR: /walletdata
+      BITCOIN_EXTRA_ARGS: |
+        rpcport=43782
+        rpcbind=0.0.0.0:43782
+        rpcallowip=0.0.0.0/0
+        port=39388
+        whitelist=0.0.0.0/0
+        fallbackfee=0.0002
+        txindex=1
+        zmqpubrawblock=tcp://0.0.0.0:28332
+        zmqpubrawtx=tcp://0.0.0.0:28333
+    expose:
+      - "43782"
+      - "39388"
+      - "28332"
+      - "28333"
+
+  lnd-btcpay:
+    <<: *lnd
+    environment:
+      <<: *lnd_env
+      LND_EXTRA_ARGS: |
+        restlisten=0.0.0.0:8080
+        rpclisten=0.0.0.0:10009
+        listen=0.0.0.0:9735
+        bitcoin.active=1
+        bitcoin.regtest=1
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpccookie=/root/.bitcoin/regtest/.cookie
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        noseedbackup=1
+        alias=btcpay-node
+        tlsextradomain=lnd-btcpay
+        maxpendingchannels=10
+        accept-keysend=1
+        gc-canceled-invoices-on-startup=1
+        bitcoin.defaultchanconfs=1
+        minchansize=100000
+    volumes:
+      # The image keeps its datadir at /data.
+      - lnd_btcpay_datadir:/data
+      # bitcoind's auth cookie, read the same way NBXplorer reads it.
+      - bitcoin_datadir:/root/.bitcoin
+
+  lnd-user:
+    <<: *lnd
+    environment:
+      <<: *lnd_env
+      LND_EXTRA_ARGS: |
+        restlisten=0.0.0.0:8080
+        rpclisten=0.0.0.0:10009
+        listen=0.0.0.0:9735
+        bitcoin.active=1
+        bitcoin.regtest=1
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpccookie=/root/.bitcoin/regtest/.cookie
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        noseedbackup=1
+        alias=user-node
+        tlsextradomain=lnd-user
+        maxpendingchannels=10
+        accept-keysend=1
+        bitcoin.defaultchanconfs=1
+        minchansize=100000
+    volumes:
+      - lnd_user_datadir:/data
+      - bitcoin_datadir:/root/.bitcoin
+
+  lnd-payee:
+    <<: *lnd
+    environment:
+      <<: *lnd_env
+      LND_EXTRA_ARGS: |
+        restlisten=0.0.0.0:8080
+        rpclisten=0.0.0.0:10009
+        listen=0.0.0.0:9735
+        bitcoin.active=1
+        bitcoin.regtest=1
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpccookie=/root/.bitcoin/regtest/.cookie
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        noseedbackup=1
+        alias=payee-node
+        tlsextradomain=lnd-payee
+        maxpendingchannels=10
+        accept-keysend=1
+        bitcoin.defaultchanconfs=1
+        minchansize=100000
+    volumes:
+      - lnd_payee_datadir:/data
+      - bitcoin_datadir:/root/.bitcoin
+
+  btcpayserver:
+    environment:
+      # Everything else comes from the base file; compose merges maps.
+      BTCPAY_BTCLIGHTNING: "type=lnd-rest;server=https://lnd-btcpay:8080/;macaroonfilepath=/lnd-btcpay/data/chain/bitcoin/regtest/admin.macaroon;certfilepath=/lnd-btcpay/tls.cert;allowinsecure=true"
+    depends_on:
+      lnd-btcpay:
+        condition: service_healthy
+    volumes:
+      # Read-only: BTCPay needs the macaroon and the certificate, and has no
+      # business writing into the node's datadir.
+      - lnd_btcpay_datadir:/lnd-btcpay:ro
+
+  api:
+    environment: &lightning_env
+      LIGHTNING_ENABLED: "true"
+      # Short enough that drill 10 does not wait fifteen minutes, long enough
+      # that an ordinary payment is never racing it. Production stays at 900.
+      LN_PAYOUT_TIMEOUT_SECONDS: "60"
+      # Room to run the drills several times a day without the rolling cap
+      # turning every withdrawal into an approval. The exhaustion drill still
+      # goes through the queue on purpose: it asks for more than this.
+      SEED_LN_WITHDRAWAL_AUTO_LIMIT: "1000000"
+      SEED_LN_WITHDRAWAL_DAILY_CAP: "50000000"
+      DEPOSIT_INVOICE_EXPIRY_MIN_LN: "10"
+
+  worker:
+    environment: *lightning_env
+
+volumes:
+  lnd_btcpay_datadir:
+  lnd_user_datadir:
+  lnd_payee_datadir:

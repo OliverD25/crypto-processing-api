@@ -38,6 +38,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = REPO_ROOT / ".env.regtest.generated"
 
 BTC_PAYMENT_METHOD_ID = "BTC-CHAIN"
+LN_PAYMENT_METHOD_ID = "BTC-LN"
+
+
+def lightning_enabled() -> bool:
+    """Off unless asked for, and the default is the security decision.
+
+    Enabling BTC-LN through the API needs a **server-level** BTCPay permission.
+    Every other scope this script requests is pinned to one store, and that is
+    a property worth keeping by default rather than by intention. See
+    docs/security.md, threat 5.
+    """
+    return os.environ.get("LIGHTNING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
 
 # 1 confirmation. HighSpeed (0-conf) would credit deposits that a single-block
 # reorg can still take away, and regtest is where that habit gets formed.
@@ -67,7 +80,7 @@ WEBHOOK_EVENTS = [
 # operations and run under the admin's Basic auth, not under the key the
 # service carries at runtime.
 def store_scopes(store_id: str) -> list[str]:
-    return [
+    scopes = [
         f"btcpay.store.cancreateinvoice:{store_id}",
         f"btcpay.store.canviewinvoices:{store_id}",
         # Payout creation is guarded by its own pair of scopes in 2.4.2, and
@@ -86,17 +99,37 @@ def store_scopes(store_id: str) -> list[str]:
         # has stopped watching.
         f"btcpay.store.canviewwallet:{store_id}",
     ]
+    if lightning_enabled():
+        # Reading the node's channel balance (the custody source for BTC_LN)
+        # and the routing fee of a completed payment. Still store-scoped: the
+        # server-level permission below is a bootstrap-only scope and the
+        # runtime key never holds it.
+        scopes.append(f"btcpay.store.canuselightningnode:{store_id}")
+    return scopes
 
 
 # What later runs need in order to re-check and repair the setup. Broader than
 # the runtime key, still pinned to the one store, and still never unrestricted.
 def bootstrap_scopes(store_id: str) -> list[str]:
-    return [
+    scopes = [
         f"btcpay.store.canmodifystoresettings:{store_id}",
         f"btcpay.store.canviewstoresettings:{store_id}",
         f"btcpay.store.webhooks.canmodifywebhooks:{store_id}",
         f"btcpay.store.canviewwallet:{store_id}",
     ]
+    if lightning_enabled():
+        # The one server-level permission this project ever requests, and it is
+        # requested only because BTCPay requires it to attach the internal
+        # Lightning node to a store — a store-scoped key gets a 403. It is held
+        # by the bootstrap key, not by the key the service runs on.
+        #
+        # What it grants: use of the server's internal Lightning node. On a
+        # single-tenant box that is the same node this store would use anyway.
+        # On a shared BTCPay it is broader than this project's usual rule of
+        # "every scope pinned to one store", and docs/security.md says so.
+        scopes.append("btcpay.server.canuseinternallightningnode")
+        scopes.append(f"btcpay.store.canuselightningnode:{store_id}")
+    return scopes
 
 
 def log(message: str) -> None:
@@ -468,6 +501,68 @@ def configure_payout_processor(admin: BTCPayAdmin, store_id: str) -> None:
     log(f"payout processor configured: every {interval}s, fee target 3 blocks")
 
 
+def ensure_lightning_payment_method(admin: BTCPayAdmin, store_id: str) -> None:
+    """Point the store at the server's internal Lightning node.
+
+    This is the call that needs `btcpay.server.canuseinternallightningnode`; a
+    store-scoped key gets a 403 with that permission named, which is how the
+    spike discovered it was required at all.
+    """
+    existing = admin.request(
+        "GET", f"/api/v1/stores/{store_id}/payment-methods/{LN_PAYMENT_METHOD_ID}"
+    )
+    if existing.status_code == 200 and (existing.json() or {}).get("enabled"):
+        log(f"lightning payment method already enabled ({LN_PAYMENT_METHOD_ID})")
+        return
+
+    response = admin.request(
+        "PUT",
+        f"/api/v1/stores/{store_id}/payment-methods/{LN_PAYMENT_METHOD_ID}",
+        json={"enabled": True, "config": {"connectionString": "Internal Node"}},
+    )
+    if response.status_code >= 400:
+        raise BootstrapError(
+            f"could not enable {LN_PAYMENT_METHOD_ID} on the store "
+            f"({response.status_code}: {response.text[:300]}). A 403 here means the "
+            "bootstrap key predates LIGHTNING_ENABLED and lacks "
+            "btcpay.server.canuseinternallightningnode; delete BTCPAY_BOOTSTRAP_KEY from "
+            ".env.regtest.generated and re-run so a new one is issued. Anything else "
+            "usually means BTCPAY_BTCLIGHTNING is not set on the BTCPay container."
+        )
+    log(f"enabled {LN_PAYMENT_METHOD_ID} on the store, using the internal node")
+
+
+def configure_lightning_payout_processor(admin: BTCPayAdmin, store_id: str) -> None:
+    """Configure the automated Lightning sender.
+
+    Without it, approved Lightning payouts are created and never paid.
+
+    One thing to know about this configuration, found by the R4 spike:
+    `cancelPayoutAfterFailures` is accepted and then silently dropped from the
+    echoed config. BTCPay will **not** cancel a payout it cannot route, however
+    many times it fails — it retries for as long as the invoice lives. That is
+    why the service has its own deadline (`LN_PAYOUT_TIMEOUT_SECONDS`) rather
+    than relying on this processor to give up.
+    """
+    interval = max(int(os.environ.get("BTCPAY_LN_PAYOUT_INTERVAL_SECONDS", "60")), 60)
+    response = admin.request(
+        "PUT",
+        f"/api/v1/stores/{store_id}/payout-processors/"
+        f"LightningAutomatedPayoutSenderFactory/{LN_PAYMENT_METHOD_ID}",
+        json={
+            "intervalSeconds": interval,
+            "processNewPayoutsInstantly": True,
+        },
+    )
+    if response.status_code >= 400:
+        raise BootstrapError(
+            "could not configure the Lightning payout processor "
+            f"({response.status_code}: {response.text[:300]}). Without it approved "
+            "Lightning payouts are created but never paid."
+        )
+    log(f"lightning payout processor configured: every {interval}s, new payouts instantly")
+
+
 def main() -> int:
     config = Config()
     existing = read_env_file(config.output_path)
@@ -494,6 +589,9 @@ def main() -> int:
             admin, config, store_id, existing.get("BTCPAY_API_KEY", ""), can_mint=can_mint
         )
         configure_payout_processor(admin, store_id)
+        if lightning_enabled():
+            ensure_lightning_payment_method(admin, store_id)
+            configure_lightning_payout_processor(admin, store_id)
     finally:
         admin.close()
 
@@ -510,8 +608,13 @@ def main() -> int:
         "SEED_BTC_PAYMENT_METHOD": BTC_PAYMENT_METHOD_ID,
         "DEPOSIT_MONITORING_MINUTES": str(MONITORING_EXPIRATION_SECONDS // 60),
     }
+    if lightning_enabled():
+        values["LIGHTNING_ENABLED"] = "true"
+        values["SEED_LN_PAYMENT_METHOD"] = LN_PAYMENT_METHOD_ID
     write_env_file(config.output_path, values)
     log(f"wrote {config.output_path}")
+    if lightning_enabled():
+        log("lightning is on: the key holds one server-level scope, see docs/security.md")
     log("store_id and webhook are ready; deposits are M2")
     return 0
 
