@@ -1,3 +1,3 @@
 """Single-tenant custodial crypto payment and ledger service."""
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"

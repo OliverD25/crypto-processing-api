@@ -3,9 +3,8 @@
 For developers of the platform backend that calls this service. It assumes
 nothing about your stack beyond HTTP and JSON.
 
-> **Status: M4.** Deposits and withdrawals work for BTC and USDT-TRC20.
-> Outbound webhooks arrive in M5. Endpoints described here are stable; anything
-> not described here does not exist yet.
+> **Status: v0.1.0.** Deposits, withdrawals and outbound webhooks work for BTC
+> and USDT-TRC20. Every endpoint is listed in [`api.md`](api.md).
 
 ## The one rule
 
@@ -250,9 +249,8 @@ The same reasoning applies one level up, to you:
 
 - **Poll `GET /v1/deposits/{id}` while a deposit is not terminal.** Every 10–30
   seconds is plenty.
-- When outbound webhooks arrive in M5, they will be **notifications, not
-  truth**. Treat one as a hint to re-read the deposit, never as the fact
-  itself.
+- **Outbound webhooks are notifications, not truth.** Treat one as a hint to
+  re-read the resource, never as the fact itself. See below.
 - A credit is final once `credited: true`. It is never quietly reversed. A
   correction, if one is ever needed, is a new journal entry with its own
   record.
@@ -400,6 +398,76 @@ what you show the user; treat it as informational until `confirmed`.
 
 Retry a `5xx` with the **same** `Idempotency-Key`. A retry with a new key is a
 second withdrawal.
+
+## Outbound webhooks
+
+Optional. If you would rather poll, leave `PLATFORM_WEBHOOK_URL` unset and
+nothing changes — events queue up server-side and are never lost, so you can
+turn delivery on later and receive the backlog.
+
+```
+POST /your/endpoint
+Content-Type: application/json
+X-CPA-Signature: t=1760000000,v1=4f2a…
+
+{"id":"evt_019f…","type":"deposit.settled","created_at":"2026-08-10T13:11:02+00:00",
+ "data":{"deposit_id":"019f…","external_user_id":"user-42","asset":"BTC",
+         "status":"settled","amount_credited":"0.50000000"}}
+```
+
+Return any 2xx to acknowledge. Anything else is retried at 1m, 5m, 30m, 2h, 6h
+then every 12 hours — ten attempts over about three days, after which the event
+is dead-lettered and an operator is alerted. It is never deleted; they can
+re-queue it.
+
+### Verifying the signature
+
+The scheme is Stripe's. The timestamp is inside the signed string, so a captured
+request cannot be replayed tomorrow.
+
+```python
+import hashlib
+import hmac
+import time
+
+def verify(secret: str, raw_body: bytes, header: str, tolerance: int = 300) -> bool:
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    timestamp, presented = parts.get("t"), parts.get("v1")
+    if not timestamp or not presented:
+        return False
+    if abs(int(time.time()) - int(timestamp)) > tolerance:
+        return False          # outside the replay window
+    expected = hmac.new(
+        secret.encode(), f"{timestamp}.".encode() + raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, presented)
+```
+
+Three things that are easy to get wrong:
+
+1. **Use the raw request body.** Parsing the JSON and re-serializing it changes
+   the whitespace and the signature will never match. Read the bytes first.
+2. **Use `compare_digest`**, not `==`.
+3. **Enforce the timestamp window** — five minutes is the convention. Without
+   it the signature proves authenticity but not freshness.
+
+### Handling an event
+
+```
+1. verify the signature      -> 401 if it fails
+2. dedup on "id"             -> the same evt_ id may arrive twice
+3. return 200 immediately
+4. re-read the resource      -> GET /v1/deposits/{id}
+5. act on what the GET said, not on what the webhook said
+```
+
+Step 5 is the whole contract. A webhook tells you *something changed*; the GET
+tells you *what is true*. Every integration that skips it eventually
+double-credits a user, because a retried delivery looks exactly like a second
+event.
+
+Ids are stable and prefixed `evt_`. We ask BTCPay's consumers — us — to dedup,
+so we provide the same courtesy.
 
 ## Operator endpoints
 

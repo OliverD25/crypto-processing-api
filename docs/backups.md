@@ -344,3 +344,110 @@ Four weekly fulls plus fourteen days of incrementals and their WAL is a few GB
 for a ledger of this size. On a homelab disk that is free. Do not tune
 retention down to save space you are not short of: the value of a backup is
 mostly in how far back it goes when you discover the problem late.
+
+---
+
+# Appendix: the operational bits
+
+## Cron
+
+```cron
+# /etc/cron.d/crypto-processing-api-backup
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# Weekly full, nightly incremental.
+30 2 * * 0  postgres pgbackrest --stanza=ledger --type=full backup
+30 2 * * 1-6 postgres pgbackrest --stanza=ledger --type=incr backup
+
+# Second, independent format. A pgBackRest repository that will not open is
+# still a possibility; a plain SQL dump restores anywhere.
+0  3 * * *  postgres /usr/local/bin/ledger-dump.sh
+
+# The check that matters more than the backups: it writes a test WAL segment
+# and confirms it arrived. Alert on a non-zero exit.
+17 * * * *  postgres pgbackrest --stanza=ledger check || \
+            curl -s -d "pgbackrest check failed" "$NTFY_TOPIC_URL"
+```
+
+The hourly `check` is the important line. A backup job that succeeds while
+archiving is silently broken is the failure mode this catches — and it is the
+common one, because nothing else complains.
+
+## Restore drill
+
+**Quarterly, on a machine that is not the VPS.** Write the date of the last
+successful drill somewhere you will see it. An untested backup is a belief.
+
+```sh
+# 1. a fresh host with the same PostgreSQL major version and pgBackRest
+#    configured against the repository, including the cipher passphrase
+sudo systemctl stop postgresql
+sudo -u postgres rm -rf /var/lib/postgresql/16/main/*
+
+# 2. restore and replay
+sudo -u postgres pgbackrest --stanza=ledger --delta restore
+sudo systemctl start postgresql
+
+# 3. wait for recovery to finish
+sudo -u postgres psql -c "SELECT pg_is_in_recovery();"
+```
+
+Point-in-time, for a bad migration or a mistaken admin action:
+
+```sh
+sudo -u postgres pgbackrest --stanza=ledger \
+    --type=time --target="2026-08-10 14:32:00+00" --delta restore
+```
+
+### Verify before trusting
+
+Run the service's own invariants against the restored database — the same three
+checks Job C runs hourly. All must return zero rows:
+
+```sql
+SELECT entry_id, SUM(amount) FROM postings
+GROUP BY entry_id HAVING SUM(amount) <> 0;
+
+SELECT a.id, a.balance, COALESCE(SUM(p.amount), 0) AS derived
+FROM accounts a LEFT JOIN postings p ON p.account_id = a.id
+GROUP BY a.id, a.balance HAVING a.balance <> COALESCE(SUM(p.amount), 0);
+
+SELECT asset_id, SUM(balance) FROM accounts
+GROUP BY asset_id HAVING SUM(balance) <> 0;
+```
+
+Then compare custody against the outside world before accepting any traffic:
+
+```sh
+curl -s -H "Authorization: Bearer $ADMIN_KEY" "$API/v1/admin/reconciliation" | jq '.custody'
+```
+
+If `insolvent` is true on any asset, **stop withdrawals before anything else**
+and work through `docs/runbook-reorg.md` step 1.
+
+## After a restore: what to reconstruct
+
+The gap between the recovery point and the failure has to be closed by hand.
+In order:
+
+1. **BTC deposits** — replay them. Reconciliation Job A re-credits anything
+   missing on its own, because a deposit credit is keyed on
+   `btcpay_payment:{invoiceId}:{paymentId}` and re-posting an existing one is a
+   no-op. **Let the poller do it. Do not credit by hand.**
+2. **BTC withdrawals** — BTCPay's payout history has the payouts, their states
+   and their transaction ids. Match them by the `withdrawal_id` in the payout
+   metadata.
+3. **USDT withdrawals** — no external record exists. Pull the hot wallet's
+   outgoing TRC-20 transfers from TronScan for the gap and match each to a user
+   by amount, destination and time. Write down what you decided. This step is
+   why continuous archiving exists.
+4. **Review decisions and adjustments** — gone. Anything that was in the review
+   queue reappears there, which is the safe direction: unresolved rather than
+   wrongly resolved.
+5. **Withdrawal holds** — a lost hold shows a balance as available while a
+   payout may be in flight. Keep withdrawals frozen until step 2 accounts for
+   every payout in the gap.
+
+Freeze the withdrawal path for all of it. Deposits are safe to accept — they
+only ever add.
