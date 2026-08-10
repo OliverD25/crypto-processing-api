@@ -1,0 +1,111 @@
+# Production stack: api + worker + the ledger database.
+#
+# Sits beside btcpayserver-docker on the same host and joins its network, so
+# BTCPay reaches the webhook endpoint and this service reaches Greenfield
+# without either going near the internet.
+#
+#   cd /opt/crypto-processing-api
+#   cp .env.example .env && chmod 600 .env   # then edit it
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# ---------------------------------------------------------------------------
+# Publishes nothing.
+#
+# `ports:` on a Docker container writes its own iptables rules and bypasses ufw
+# entirely — a "deny by default" firewall with a published port is not denying
+# that port. Public access comes through btcpayserver-docker's nginx, which
+# already terminates TLS. See deploy/nginx/api.conf.example.
+# ---------------------------------------------------------------------------
+name: crypto-processing-api
+
+x-app: &app
+  image: ghcr.io/oliverd25/crypto-processing-api:${CPAPI_VERSION:-0.1.0}
+  restart: unless-stopped
+  env_file:
+    - path: ../.env
+      required: true
+  environment:
+    DATABASE_URL: postgresql://cpapi:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/cpapi
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - default
+    - btcpay
+
+services:
+  api:
+    <<: *app
+    container_name: crypto-api
+    expose:
+      - "8000"
+    command:
+      - sh
+      - -c
+      - >-
+        python -m crypto_processing_api.cli migrate &&
+        uvicorn crypto_processing_api.main:app --host 0.0.0.0 --port 8000
+        --workers 1 --proxy-headers --forwarded-allow-ips '*'
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys,urllib.request
+          sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *app
+    container_name: crypto-worker
+    # Same image, different command. Webhooks only reduce latency; this process
+    # is what makes deposits and withdrawals correct.
+    command: ["python", "-m", "crypto_processing_api.workers.runner"]
+    healthcheck:
+      disable: true
+
+  postgres:
+    image: postgres:16
+    container_name: crypto-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cpapi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cpapi
+    # Tuned for a 4GB box shared with BTCPay, NBXplorer and bitcoind. Postgres
+    # is not the memory hog here and should not act like it.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=50
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=/bin/true
+    volumes:
+      # A host path, not a named volume: pgBackRest runs on the host and needs
+      # to see the data directory. See docs/backups.md.
+      - /var/lib/crypto-processing-api/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cpapi -d cpapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+    name: crypto-processing-api
+  btcpay:
+    # Created by btcpayserver-docker. `external: true` means compose will not
+    # create it — if this errors, BTCPay is not running or the name differs;
+    # check `docker network ls`.
+    name: ${BTCPAY_NETWORK:-generated_default}
+    external: true

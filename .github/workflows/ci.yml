@@ -101,6 +101,21 @@ jobs:
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1
           detect --source=/repo --config=/repo/.gitleaks.toml --redact --verbose
 
+  btcpay-compat:
+    name: BTCPay compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Asserts the endpoints and fields this service depends on still exist in
+      # the pinned tag. Drift here does not crash anything — it silently stops
+      # crediting deposits.
+      - run: python scripts/check_btcpay_compat.py
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

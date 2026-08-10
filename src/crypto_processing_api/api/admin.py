@@ -22,14 +22,15 @@ from crypto_processing_api.config import Settings
 from crypto_processing_api.core import auth
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.redaction import get_logger
-from crypto_processing_api.db import db_session
+from crypto_processing_api.db import db_session, get_session_factory
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.gateway.trongrid import TronGridError, TronGridGateway
-from crypto_processing_api.ledger.models import WalletTxoAlert, WithdrawalStatus
+from crypto_processing_api.ledger.models import OutboundEvent, WalletTxoAlert, WithdrawalStatus
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import fees
 from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.backends import ManualTronBackend, TronTxVerifier
+from crypto_processing_api.workers import outbound_delivery, reconciliation
 
 router = APIRouter(tags=["admin"], prefix="/v1/admin")
 logger = get_logger(__name__)
@@ -350,3 +351,99 @@ def mark_broadcast(
 
     session.commit()
     return _withdrawal_response(session, withdrawal_id)
+
+
+@router.get("/events", response_model=None)
+def outbound_events(
+    _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, Any]:
+    """The outbound queue, usually read with `?status=dead`."""
+    query = select(OutboundEvent)
+    if status_filter is not None:
+        if status_filter not in ("pending", "delivered", "dead"):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown status {status_filter!r}"
+            )
+        query = query.where(OutboundEvent.status == status_filter)
+
+    rows = session.execute(query.order_by(OutboundEvent.created_at.desc()).limit(limit)).scalars()
+    return {
+        "events": [
+            {
+                "id": f"evt_{event.id}",
+                "raw_id": str(event.id),
+                "type": event.event_type,
+                "status": event.status,
+                "attempts": event.attempts,
+                "next_attempt_at": event.next_attempt_at.isoformat(),
+                "last_error": event.last_error,
+                "created_at": event.created_at.isoformat(),
+                "payload": event.payload,
+            }
+            for event in rows
+        ]
+    }
+
+
+@router.post("/events/{event_id}/redeliver", response_model=None)
+def redeliver_event(
+    event_id: uuid.UUID,
+    key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+) -> dict[str, Any]:
+    """Put a dead event back in the queue.
+
+    Dead events are never deleted, so this is always possible once whatever
+    broke on the platform side is fixed.
+    """
+    if not outbound_delivery.requeue(session, event_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such event, or it was already delivered")
+    session.commit()
+    logger.info("outbound.requeued", event_id=str(event_id), actor=key.key_id)
+    return {"id": f"evt_{event_id}", "status": "pending"}
+
+
+@router.get("/reconciliation", response_model=None)
+def reconciliation_report(
+    _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    settings: Annotated[Settings, Depends(get_settings_dependency)],
+    gateway: Annotated[BTCPayGateway, Depends(get_gateway)],
+    tron: Annotated[TronGridGateway, Depends(get_tron_gateway)],
+) -> dict[str, Any]:
+    """The same computation Job C runs hourly, on demand.
+
+    Reading this after an incident is the fastest way to answer the only
+    question that matters: is there still enough on chain to cover what users
+    are owed?
+    """
+    report = reconciliation.check_invariants(
+        get_session_factory(),
+        gateway,
+        settings,
+        tron=tron if settings.tron_configured else None,
+    )
+    return {
+        "healthy": report.healthy,
+        "ledger_consistent": report.consistent,
+        "materialized_vs_derived_drifts": report.drifts,
+        "unbalanced_entries": report.unbalanced_entries,
+        "alerts": report.alerts,
+        "custody": [
+            {
+                "asset": line.asset_id,
+                "ledger_custody": str(line.ledger_custody),
+                "ledger_in_flight": str(line.ledger_in_flight),
+                "user_obligations": str(line.user_obligations),
+                "chain_balance": None if line.chain_balance is None else str(line.chain_balance),
+                "chain_source": line.chain_source,
+                # Derived from in-flight postings, not a tuned epsilon.
+                "expected_shortfall": str(line.expected_shortfall),
+                "difference": None if line.difference is None else str(line.difference),
+                "insolvent": line.insolvent,
+            }
+            for line in report.custody
+        ],
+    }

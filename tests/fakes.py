@@ -171,6 +171,7 @@ class FakeBTCPay:
         self.invoices: dict[str, FakeInvoice] = {}
         self.payouts: dict[str, FakePayout] = {}
         self.fee_rate = 10.0
+        self.wallet_balance = "1.00000000"
         self.wallet_transactions: list[dict[str, Any]] = []
         self.redelivered: list[tuple[str, str]] = []
         self.calls: list[str] = []
@@ -352,7 +353,9 @@ class FakeBTCPay:
 
     def get_wallet(self, payment_method_id: str) -> WalletOverview:
         self._maybe_fail("get_wallet")
-        return WalletOverview.model_validate({"balance": "0", "confirmedBalance": "0"})
+        return WalletOverview.model_validate(
+            {"balance": self.wallet_balance, "confirmedBalance": self.wallet_balance}
+        )
 
     def get_wallet_transactions(
         self, payment_method_id: str, *, skip: int = 0, limit: int = 100

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from crypto_processing_api.alerts.notifier import Severity, notify
+from crypto_processing_api.alerts.notifier import AlertCode, Severity, notify
 from crypto_processing_api.config import Settings
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.trongrid import (
@@ -59,10 +59,10 @@ class GasMonitor:
             if self.consecutive_failures >= FAILURE_STREAK_ALERT:
                 notify(
                     Severity.WARNING,
-                    "tron.grid_unreachable",
+                    AlertCode.TRON_GRID_UNREACHABLE,
                     f"TronGrid has failed {self.consecutive_failures} checks in a row"
                     + (" (rate limited)" if rate_limited else ""),
-                    ntfy_topic_url=settings.ntfy_topic_url,
+                    settings=settings,
                     error=str(exc),
                 )
                 report.alerted = True
@@ -75,10 +75,10 @@ class GasMonitor:
         if trx < settings.trx_alert_threshold:
             notify(
                 Severity.WARNING,
-                "tron.low_trx_balance",
+                AlertCode.TRON_LOW_TRX_BALANCE,
                 f"TRON hot wallet has {trx} TRX, below the {settings.trx_alert_threshold} "
                 "TRX threshold; USDT withdrawals will fail once it runs out of energy",
-                ntfy_topic_url=settings.ntfy_topic_url,
+                settings=settings,
                 trx=trx,
                 threshold=settings.trx_alert_threshold,
             )

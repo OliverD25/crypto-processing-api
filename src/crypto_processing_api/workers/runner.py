@@ -18,6 +18,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from types import FrameType
 from typing import Any
 
@@ -29,8 +30,14 @@ from crypto_processing_api.config import Settings, get_settings
 from crypto_processing_api.core.redaction import configure_logging, get_logger
 from crypto_processing_api.db import get_session_factory, session_scope
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
+from crypto_processing_api.ledger.models import WorkerHeartbeat
 from crypto_processing_api.services.assets import sync_payment_methods
-from crypto_processing_api.workers import payout_submitter, reconciliation, webhook_processor
+from crypto_processing_api.workers import (
+    outbound_delivery,
+    payout_submitter,
+    reconciliation,
+    webhook_processor,
+)
 from crypto_processing_api.workers.gas_monitor import GasMonitor
 
 logger = get_logger(__name__)
@@ -49,6 +56,8 @@ JOB_WITHDRAWAL_SWEEP = 7
 JOB_STUCK_SUBMITTING = 8
 JOB_MANUAL_SWEEP = 9
 JOB_GAS_MONITOR = 10
+JOB_OUTBOUND_DELIVERY = 11
+JOB_INVARIANTS = 12
 
 
 @dataclass
@@ -72,6 +81,36 @@ def release_advisory_lock(session: Session, key: int) -> None:
     session.execute(
         text("SELECT pg_advisory_unlock(:ns, :key)"), {"ns": LOCK_NAMESPACE, "key": key}
     )
+
+
+def record_heartbeat(job_name: str, *, result: str | None, error: str | None) -> None:
+    """Say when this job last finished.
+
+    /healthz is process and database only, so a dead worker cannot make the API
+    look down. This is how a dead worker is noticed instead.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    factory = get_session_factory()
+    with factory() as session:
+        session.execute(
+            pg_insert(WorkerHeartbeat)
+            .values(
+                job_name=job_name,
+                last_run_at=datetime.now(UTC),
+                last_result=(result or "")[:500] or None,
+                last_error=(error or "")[:500] or None,
+            )
+            .on_conflict_do_update(
+                index_elements=["job_name"],
+                set_={
+                    "last_run_at": datetime.now(UTC),
+                    "last_result": (result or "")[:500] or None,
+                    "last_error": (error or "")[:500] or None,
+                },
+            )
+        )
+        session.commit()
 
 
 def run_locked(job: Job) -> Any:
@@ -131,6 +170,18 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             lock_key=JOB_STUCK_SUBMITTING,
             interval_seconds=settings.reconcile_withdrawal_interval_seconds,
             run=lambda: payout_submitter.resolve_stuck(factory, gateway, settings),
+        ),
+        Job(
+            name="outbound_delivery",
+            lock_key=JOB_OUTBOUND_DELIVERY,
+            interval_seconds=settings.outbound_delivery_interval_seconds,
+            run=lambda: outbound_delivery.deliver_pending(factory, settings),
+        ),
+        Job(
+            name="invariants",
+            lock_key=JOB_INVARIANTS,
+            interval_seconds=settings.reconcile_invariant_interval_seconds,
+            run=lambda: reconciliation.check_invariants(factory, gateway, settings),
         ),
         Job(
             name="orphan_scan",
@@ -204,12 +255,15 @@ class Runner:
                     result = run_locked(job)
                     if result is not None:
                         logger.info("job.done", job=job.name, result=str(result))
+                        record_heartbeat(job.name, result=str(result), error=None)
                 except BTCPayError as exc:
                     # A BTCPay outage must not take the worker down with it;
                     # the next tick tries again.
                     logger.warning("job.btcpay_error", job=job.name, error=str(exc))
-                except Exception:
+                    record_heartbeat(job.name, result=None, error=str(exc))
+                except Exception as exc:
                     logger.exception("job.crashed", job=job.name)
+                    record_heartbeat(job.name, result=None, error=f"{type(exc).__name__}: {exc}")
             time.sleep(tick_seconds)
         logger.info("worker.stopped")
 

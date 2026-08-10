@@ -6,25 +6,39 @@ forever if webhooks were the truth path. These jobs ask BTCPay what actually
 happened and feed the answer through the same `apply_invoice_state` the
 webhook handler uses.
 
-Job A here is deposits, Job B withdrawals. Job C (invariants) arrives with M5.
+Job A here is deposits, Job B withdrawals, Job C the invariant and custody
+check.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.alerts.notifier import AlertCode, Severity, notify
 from crypto_processing_api.config import Settings
 from crypto_processing_api.core.amounts import AmountError, to_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway, BTCPayNotFound
 from crypto_processing_api.gateway.trongrid import TronGridError, TronGridGateway
-from crypto_processing_api.ledger.models import Asset, Deposit, DepositPayment, WalletTxoAlert
+from crypto_processing_api.ledger.invariants import (
+    balance_drifts,
+    custody_reports,
+    unbalanced_entries,
+)
+from crypto_processing_api.ledger.models import (
+    Account,
+    AccountKind,
+    Asset,
+    Deposit,
+    DepositPayment,
+    WalletTxoAlert,
+)
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.backends import (
@@ -112,6 +126,8 @@ def sweep_deposits(
                     status=result.status.value,
                     credited=result.credited_units,
                 )
+                if result.credited_units:
+                    record_sweep_miss(settings, what="deposit", identifier=str(deposit_id))
     return report
 
 
@@ -415,3 +431,174 @@ def sweep_manual_withdrawals(
             if withdrawal_service.get(session, withdrawal_id).status != previous:
                 report.changed += 1
     return report
+
+
+@dataclass
+class CustodyLine:
+    asset_id: str
+    ledger_custody: int
+    ledger_in_flight: int
+    user_obligations: int
+    chain_balance: int | None
+    chain_source: str
+    #: Derived, not tuned: what the on-chain balance is expected to be short by.
+    expected_shortfall: int
+
+    @property
+    def difference(self) -> int | None:
+        """Chain minus what the ledger says should be there. Negative is bad."""
+        if self.chain_balance is None:
+            return None
+        return self.chain_balance - (self.ledger_custody - self.expected_shortfall)
+
+    @property
+    def insolvent(self) -> bool:
+        """Less on chain than we owe users. The one signal that matters."""
+        if self.chain_balance is None:
+            return False
+        return self.chain_balance < self.user_obligations
+
+
+@dataclass
+class InvariantReport:
+    consistent: bool = True
+    drifts: list[str] = field(default_factory=list)
+    unbalanced_entries: list[str] = field(default_factory=list)
+    custody: list[CustodyLine] = field(default_factory=list)
+    alerts: list[str] = field(default_factory=list)
+
+    @property
+    def healthy(self) -> bool:
+        return self.consistent and not self.alerts
+
+
+def _chain_balance(
+    asset: Asset,
+    gateway: BTCPayGateway,
+    tron: TronGridGateway | None,
+    settings: Settings,
+) -> tuple[int | None, str]:
+    """What the outside world says we hold."""
+    if asset.btcpay_payment_method.endswith(ONCHAIN_SUFFIX):
+        try:
+            overview = gateway.get_wallet(asset.btcpay_payment_method)
+            return to_units(overview.balance, asset.decimals), "btcpay_wallet"
+        except (BTCPayError, AmountError) as exc:
+            logger.warning("job_c.btcpay_balance_failed", asset=asset.id, error=str(exc))
+            return None, "btcpay_wallet_unavailable"
+
+    if asset.id == "USDT_TRC20" and tron is not None and settings.tron_hot_wallet_address:
+        try:
+            return (
+                tron.get_trc20_balance(settings.tron_hot_wallet_address, settings.usdt_contract),
+                "trongrid",
+            )
+        except TronGridError as exc:
+            logger.warning("job_c.tron_balance_failed", asset=asset.id, error=str(exc))
+            return None, "trongrid_unavailable"
+
+    return None, "no_source"
+
+
+def check_invariants(
+    session_factory: Callable[[], Session],
+    gateway: BTCPayGateway,
+    settings: Settings,
+    *,
+    tron: TronGridGateway | None = None,
+) -> InvariantReport:
+    """Job C. The check that catches real-world loss.
+
+    Three layers, cheapest first:
+
+    1. every journal entry sums to zero
+    2. every materialized balance equals the sum of its postings
+    3. custody: what the ledger says we hold against what the chain says
+
+    Layer 3 needs a tolerance, and the tolerance is **derived**, not tuned.
+    Between submission and confirmation the coins have left the wallet while
+    `payouts_in_flight` still carries them, so the expected shortfall is
+    exactly that account's balance. A hand-picked epsilon would have to be
+    loosened as volume grew, which is the same as switching the alarm off.
+    """
+    report = InvariantReport()
+
+    with session_factory() as session:
+        for imbalance in unbalanced_entries(session):
+            report.unbalanced_entries.append(
+                f"entry {imbalance.entry_id} sums to {imbalance.total}"
+            )
+        for drift in balance_drifts(session):
+            report.drifts.append(
+                f"account {drift.account_id} ({drift.kind.value}) materialized "
+                f"{drift.materialized} vs derived {drift.derived}"
+            )
+        report.consistent = not report.drifts and not report.unbalanced_entries
+
+        custody_by_asset = {row.asset_id: row for row in custody_reports(session)}
+        assets = list(session.execute(select(Asset)).scalars())
+
+        for asset in assets:
+            summary = custody_by_asset.get(asset.id)
+            if summary is None:
+                continue
+            in_flight = session.execute(
+                select(func.coalesce(func.sum(Account.balance), 0)).where(
+                    Account.asset_id == asset.id,
+                    Account.kind == AccountKind.PAYOUTS_IN_FLIGHT,
+                )
+            ).scalar_one()
+            chain, source = _chain_balance(asset, gateway, tron, settings)
+            report.custody.append(
+                CustodyLine(
+                    asset_id=asset.id,
+                    ledger_custody=summary.custody,
+                    ledger_in_flight=int(in_flight),
+                    user_obligations=summary.user_obligations,
+                    chain_balance=chain,
+                    chain_source=source,
+                    expected_shortfall=int(in_flight) + settings.custody_tolerance_units,
+                )
+            )
+
+    if not report.consistent:
+        detail = "; ".join(report.unbalanced_entries + report.drifts)[:800]
+        report.alerts.append(detail)
+        notify(
+            Severity.CRITICAL,
+            AlertCode.LEDGER_INVARIANT_FAILURE,
+            f"the ledger does not hold together: {detail}",
+            settings=settings,
+        )
+
+    for line in report.custody:
+        if line.insolvent:
+            message = (
+                f"{line.asset_id}: the wallet holds {line.chain_balance} but users are "
+                f"owed {line.user_obligations}"
+            )
+            report.alerts.append(message)
+            notify(
+                Severity.CRITICAL,
+                AlertCode.CUSTODY_INSOLVENCY_SIGNAL,
+                message,
+                settings=settings,
+                asset=line.asset_id,
+            )
+    return report
+
+
+def record_sweep_miss(settings: Settings, *, what: str, identifier: str) -> None:
+    """The poller caught something the webhook path should have.
+
+    Not an error on its own — reconciliation is supposed to catch things. A
+    rising count means ingress is broken and nobody noticed, which is the
+    condition worth an alert.
+    """
+    notify(
+        Severity.INFO,
+        AlertCode.RECONCILIATION_SWEEP_CAUGHT_MISS,
+        f"reconciliation credited a {what} that no webhook delivered",
+        settings=settings,
+        identifier=identifier,
+    )

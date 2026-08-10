@@ -499,3 +499,21 @@ class OutboundEvent(Base):
         CheckConstraint("status IN ('pending','delivered','dead')", name="outbound_events_status"),
         Index("ix_outbound_due", "next_attempt_at", postgresql_where=text("status = 'pending'")),
     )
+
+
+class WorkerHeartbeat(Base):
+    """When each background job last finished.
+
+    `/healthz` stays process + database on purpose, so a dead worker cannot
+    restart a healthy API. This is how a dead worker is noticed instead:
+    `/readyz` reports the staleness.
+    """
+
+    __tablename__ = "worker_heartbeats"
+
+    job_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_run_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_result: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)

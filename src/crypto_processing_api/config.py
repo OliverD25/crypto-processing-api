@@ -108,6 +108,17 @@ class Settings(BaseSettings):
     trx_alert_threshold: int = Field(default=200, ge=0)
     usdt_amount_tolerance_pct: float = Field(default=1.0, ge=0)
     ntfy_topic_url: OptionalStr = None
+    telegram_bot_token: OptionalStr = None
+    telegram_chat_id: OptionalStr = None
+
+    platform_webhook_url: OptionalStr = None
+    platform_webhook_secret: OptionalStr = None
+    outbound_delivery_interval_seconds: float = Field(default=15.0, gt=0)
+    outbound_http_timeout_seconds: float = Field(default=10.0, gt=0)
+    reconcile_invariant_interval_seconds: float = Field(default=3600.0, gt=0)
+    worker_heartbeat_stale_seconds: int = Field(default=300, ge=30)
+    webhook_signature_failure_threshold: int = Field(default=10, ge=1)
+    custody_tolerance_units: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def _validate(self) -> Settings:
@@ -149,12 +160,21 @@ class Settings(BaseSettings):
                 "TronGrid access is rate-limited unpredictably and USDT withdrawal "
                 "verification depends on it"
             )
+        if self.platform_webhook_url and not self.platform_webhook_secret:
+            raise ValueError(
+                "PLATFORM_WEBHOOK_URL is set but PLATFORM_WEBHOOK_SECRET is not; an "
+                "unsigned webhook is one anybody can forge"
+            )
         if self.deposit_monitoring_minutes < self.deposit_invoice_expiry_min_btc:
             raise ValueError(
                 "DEPOSIT_MONITORING_MINUTES below the invoice expiry means BTCPay stops "
                 "attributing payments before the invoice is even expired"
             )
         return self
+
+    @property
+    def outbound_configured(self) -> bool:
+        return bool(self.platform_webhook_url and self.platform_webhook_secret)
 
     @property
     def tron_endpoint(self) -> str:
