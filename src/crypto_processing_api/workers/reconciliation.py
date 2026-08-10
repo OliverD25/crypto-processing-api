@@ -492,7 +492,9 @@ def cancel_timed_out_payouts(
             )
         for withdrawal_id in due:
             report.checked += 1
-            _resolve_timed_out(session_factory, gateway, settings, withdrawal_id, report)
+            _resolve_timed_out(
+                session_factory, gateway, settings, withdrawal_id, report, deadline=seconds
+            )
 
     return report
 
@@ -503,6 +505,8 @@ def _resolve_timed_out(
     settings: Settings,
     withdrawal_id: uuid.UUID,
     report: TimeoutReport,
+    *,
+    deadline: int,
 ) -> None:
     with session_factory() as session:
         withdrawal = withdrawal_service.get(session, withdrawal_id)
@@ -558,7 +562,7 @@ def _resolve_timed_out(
             "timeout.cancelled",
             withdrawal_id=str(withdrawal_id),
             payout=backend_ref,
-            after_seconds=settings.ln_payout_timeout_seconds,
+            after_seconds=deadline,
         )
 
     proof = (
