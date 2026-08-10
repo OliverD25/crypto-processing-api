@@ -271,10 +271,25 @@ class LedgerMachine(RuleBasedStateMachine):
         item.finished = True
 
     @rule(item=holds)
-    def unsubmit(self, item: Hold | None) -> None:
-        """Reverse the in-flight commitment when the payout will never be paid."""
+    def release_after_submission(self, item: Hold | None) -> None:
+        """Give back a hold whose payout was already committed to.
+
+        This mirrors `release_withdrawal` on a submitted row: reverse the
+        in-flight commitment, return the hold, and finish. The two postings are
+        deliberately not separable.
+
+        An earlier version of this rule reversed the commitment and left the
+        hold submittable again, which looked like the more general model and was
+        simply a state production cannot reach. `post_unsubmit_entry` has one
+        caller, and it posts the release in the same breath and transitions to
+        REFUNDED, which is final. The nightly profile found it by submitting the
+        same withdrawal twice, where `ux_entry_source` refused the second
+        `withdrawal_submit:{id}` — the ledger guard holding against a caller
+        that had lost track of the state machine.
+        """
         if item is None or not item.submitted or item.finished:
             return
+        available_account, hold_account = self._user_accounts(item.user)
         self._post(
             EntryKind.REVERSAL,
             f"withdrawal_submit_reversal:{item.withdrawal_id}",
@@ -283,10 +298,18 @@ class LedgerMachine(RuleBasedStateMachine):
                 (self._system(AccountKind.PAYOUTS_IN_FLIGHT), -item.committed),
             ],
         )
+        self._post(
+            EntryKind.WITHDRAWAL_RELEASE,
+            f"withdrawal_release:{item.withdrawal_id}",
+            [(hold_account, item.gross), (available_account, -item.gross)],
+        )
         self.model.hot += item.committed
         self.model.in_flight -= item.committed
+        self.model.hold[item.user] = self.model.user_hold(item.user) + item.gross
+        self.model.available[item.user] = self.model.user_available(item.user) - item.gross
         item.submitted = False
         item.committed = 0
+        item.finished = True
 
     @rule(item=holds)
     def release(self, item: Hold | None) -> None:
