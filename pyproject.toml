@@ -73,6 +73,16 @@ ignore = [
     "S101", # asserts are how the ledger states its invariants
 ]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's whole dependency mechanism is a call in an argument default.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Body",
+]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S311"]
 "scripts/**" = ["S105", "S106"]
