@@ -235,7 +235,7 @@ reason that survives being read back in a year.
 
 | Date | Tool | Rule / CVE | Location | Decision | Reason |
 |---|---|---|---|---|---|
-| — | — | — | — | — | No suppressed findings. The tree is clean under every scanner listed above. |
+| 2026-08-10 | Semgrep `p/python` | `python.sqlalchemy.security.audit.avoid-sqlalchemy-text` | [`scripts/make_upgrade_fixture.py`](scripts/make_upgrade_fixture.py), the two `recreate_scratch_database` statements | Suppressed inline | `CREATE DATABASE` and `DROP DATABASE` take an **identifier**, and PostgreSQL cannot bind an identifier as a parameter. There is no parameterized form of these statements. The interpolated value is the module constant `SCRATCH_DB`, which never sees input, and the script is a developer tool that builds a throwaway database. The custom `no-interpolated-sql-in-money-path` rule does not cover `scripts/` because nothing there touches the money path |
 
 **Rules for this table.** A finding is either fixed or it appears here with a
 justification — never silenced with an inline ignore comment and no entry. If a

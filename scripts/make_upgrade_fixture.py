@@ -65,9 +65,15 @@ def run(*args: str) -> str:
 
 
 def recreate_scratch_database() -> None:
+    # PostgreSQL cannot bind a database name as a parameter — an identifier is
+    # not a value — so these two cannot be parameterized by any means. SCRATCH_DB
+    # is a module constant that never sees input. Suppressed with a reason and
+    # logged in SECURITY-AUDIT.md rather than silenced; see the triage table.
     engine = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
     with engine.connect() as connection:
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         connection.execute(text(f'DROP DATABASE IF EXISTS "{SCRATCH_DB}" WITH (FORCE)'))
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         connection.execute(text(f'CREATE DATABASE "{SCRATCH_DB}"'))
     engine.dispose()
     log(f"recreated {SCRATCH_DB}")
