@@ -514,6 +514,15 @@ belongs to which deposit and nothing else.
 no known deposit — usually a payment to a long-dead address. Those need manual
 attribution.
 
+It covers **BTC only**. The scan reads BTCPay's wallet transactions, and
+neither `USDT_TRC20` nor `BTC_LN` has a wallet API behind it, so nothing here
+will ever report one of theirs. For USDT that matters: a pooled address can be
+paid again next week, and
+[`runbook-usdt-attribution.md`](runbook-usdt-attribution.md) is how those are
+found. For `BTC_LN` it matters much less, because a BOLT11 invoice belongs to
+one deposit and can be paid exactly once — but a keysend, or a payment to an
+invoice created outside this service, would still go unnoticed.
+
 `GET /v1/admin/withdrawals?status=pending_approval` is the approval queue, with
 `POST .../approve` and `POST .../reject` beside it. Reject returns the money
 immediately, because nothing has been sent yet.
