@@ -15,12 +15,44 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from crypto_processing_api.config import get_settings
+from crypto_processing_api.config import Settings, get_settings
 from crypto_processing_api.core import auth, idempotency
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.db import db_session
+from crypto_processing_api.gateway.btcpay_client import BTCPayClient, BTCPayGateway, build_client
 
 logger = get_logger(__name__)
+
+_gateway: BTCPayClient | None = None
+
+
+def get_settings_dependency() -> Settings:
+    return get_settings()
+
+
+def get_gateway() -> BTCPayGateway:
+    """The one place that names `BTCPayClient`.
+
+    Tests override this dependency with `FakeBTCPay`, so no service module ever
+    imports the concrete client.
+    """
+    global _gateway
+    if _gateway is None:
+        settings = get_settings()
+        _gateway = build_client(
+            base_url=settings.btcpay_url,
+            api_key=settings.btcpay_api_key,
+            store_id=settings.btcpay_store_id,
+        )
+    return _gateway
+
+
+def reset_gateway() -> None:
+    global _gateway
+    if _gateway is not None:
+        _gateway.close()
+    _gateway = None
+
 
 _bearer = HTTPBearer(auto_error=False, description="cpk_live_… / cpk_test_… API key")
 

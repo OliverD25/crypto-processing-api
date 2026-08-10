@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     usdt_auto_withdraw: bool = False
     deposit_invoice_expiry_min_btc: int = Field(default=60, ge=1)
     deposit_invoice_expiry_min_usdt: int = Field(default=60, ge=1)
+    deposit_monitoring_minutes: int = Field(default=1440, ge=1)
+
+    webhook_poll_interval_seconds: float = Field(default=5.0, gt=0)
+    webhook_max_attempts: int = Field(default=10, ge=1)
+    reconcile_deposit_interval_seconds: float = Field(default=120.0, gt=0)
+    reconcile_settled_window_days: int = Field(default=7, ge=1)
+    reconcile_orphan_scan_interval_seconds: float = Field(default=86400.0, gt=0)
+    wallet_scan_interval_seconds: float = Field(default=600.0, gt=0)
 
     btcpay_url: OptionalStr = None
     btcpay_api_key: OptionalStr = None
@@ -102,7 +110,16 @@ class Settings(BaseSettings):
                 "SEED_USDT_WITHDRAWAL_AUTO_LIMIT above SEED_USDT_WITHDRAWAL_DAILY_CAP would let a "
                 "single withdrawal exceed the 24h cap"
             )
+        if self.deposit_monitoring_minutes < self.deposit_invoice_expiry_min_btc:
+            raise ValueError(
+                "DEPOSIT_MONITORING_MINUTES below the invoice expiry means BTCPay stops "
+                "attributing payments before the invoice is even expired"
+            )
         return self
+
+    @property
+    def btcpay_configured(self) -> bool:
+        return bool(self.btcpay_url and self.btcpay_api_key and self.btcpay_store_id)
 
     @property
     def sqlalchemy_url(self) -> str:
