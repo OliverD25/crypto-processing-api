@@ -79,6 +79,17 @@ def store_scopes(store_id: str) -> list[str]:
     ]
 
 
+# What later runs need in order to re-check and repair the setup. Broader than
+# the runtime key, still pinned to the one store, and still never unrestricted.
+def bootstrap_scopes(store_id: str) -> list[str]:
+    return [
+        f"btcpay.store.canmodifystoresettings:{store_id}",
+        f"btcpay.store.canviewstoresettings:{store_id}",
+        f"btcpay.store.webhooks.canmodifywebhooks:{store_id}",
+        f"btcpay.store.canviewwallet:{store_id}",
+    ]
+
+
 def log(message: str) -> None:
     print(f"[bootstrap] {message}", file=sys.stderr)
 
@@ -147,16 +158,31 @@ def generate_password() -> str:
 
 
 class BTCPayAdmin:
-    """Greenfield calls under the admin's Basic auth."""
+    """Greenfield calls, under Basic auth on the first run and an API key after.
 
-    def __init__(self, base_url: str, email: str, password: str) -> None:
+    Basic auth is not a durable option. BTCPay only accepts it for an account
+    younger than five minutes, with the comment "give new accounts time to
+    create API keys via the Greenfield API" — after that the user has to enable
+    it by hand in the UI. So the first run has one short window in which to
+    mint the key every later run uses.
+    """
+
+    def __init__(self, base_url: str, authorization: str) -> None:
         self.base_url = base_url.rstrip("/")
-        token = base64.b64encode(f"{email}:{password}".encode()).decode()
         self.client = httpx.Client(
             base_url=self.base_url,
-            headers={"Authorization": f"Basic {token}"},
+            headers={"Authorization": authorization},
             timeout=httpx.Timeout(connect=5.0, read=60.0, write=30.0, pool=30.0),
         )
+
+    @classmethod
+    def from_basic(cls, base_url: str, email: str, password: str) -> BTCPayAdmin:
+        token = base64.b64encode(f"{email}:{password}".encode()).decode()
+        return cls(base_url, f"Basic {token}")
+
+    @classmethod
+    def from_token(cls, base_url: str, api_key: str) -> BTCPayAdmin:
+        return cls(base_url, f"token {api_key}")
 
     def close(self) -> None:
         self.client.close()
@@ -193,7 +219,8 @@ def wait_for_btcpay(config: Config) -> None:
 
 
 def ensure_admin_user(config: Config) -> BTCPayAdmin:
-    admin = BTCPayAdmin(config.url, config.admin_email, config.admin_password)
+    """Create the first admin, or authenticate as an existing new-enough one."""
+    admin = BTCPayAdmin.from_basic(config.url, config.admin_email, config.admin_password)
     response = admin.request("GET", "/api/v1/users/me")
     if response.status_code == 200:
         log(f"admin user exists: {config.admin_email}")
@@ -211,13 +238,48 @@ def ensure_admin_user(config: Config) -> BTCPayAdmin:
     if created.status_code >= 400:
         admin.close()
         raise BootstrapError(
-            "could not create the first admin user "
-            f"({created.status_code}: {created.text[:300]}). If this BTCPay already has an "
-            "admin, set BTCPAY_ADMIN_EMAIL and BTCPAY_ADMIN_PASSWORD to it, or wipe the "
-            "stack with `docker compose -f deploy/docker-compose.regtest.yml down -v`."
+            "could not authenticate or create an admin user "
+            f"({created.status_code}: {created.text[:300]}). "
+            "BTCPay accepts Basic auth only for an account younger than five minutes, so "
+            "this happens when the bootstrap key in .env.regtest.generated is gone or "
+            "revoked and the admin account is older than that. "
+            "Ways out: enable Greenfield Basic auth for the user in the BTCPay UI "
+            "(Account > API Keys), point BTCPAY_ADMIN_EMAIL/BTCPAY_ADMIN_PASSWORD at a "
+            "fresh admin, or wipe the dev stack with "
+            "`docker compose -f deploy/docker-compose.regtest.yml down -v`."
         )
     log(f"created admin user {config.admin_email}")
     return admin
+
+
+def connect(config: Config, existing: dict[str, str]) -> tuple[BTCPayAdmin, bool]:
+    """Return a Greenfield client and whether it is able to mint API keys.
+
+    Only Basic auth can create API keys (`POST /api/v1/api-keys` accepts Basic
+    or an unrestricted key, and an unrestricted key is exactly what this
+    project refuses to hold).
+    """
+    stored = existing.get("BTCPAY_BOOTSTRAP_KEY", "")
+    if stored:
+        admin = BTCPayAdmin.from_token(config.url, stored)
+        if admin.request("GET", "/api/v1/api-keys/current").status_code == 200:
+            log("authenticated with the stored bootstrap API key")
+            return admin, False
+        admin.close()
+        log("stored bootstrap key no longer works; trying basic auth")
+    return ensure_admin_user(config), True
+
+
+def ensure_bootstrap_key(admin: BTCPayAdmin, store_id: str, known_key: str) -> str:
+    if known_key:
+        return known_key
+    created = admin.json(
+        "POST",
+        "/api/v1/api-keys",
+        json={"label": "cpapi bootstrap key", "permissions": bootstrap_scopes(store_id)},
+    )
+    log("issued a bootstrap API key so later runs do not depend on basic auth")
+    return str(created["apiKey"])
 
 
 def ensure_store(admin: BTCPayAdmin, name: str) -> dict[str, Any]:
@@ -319,7 +381,9 @@ def ensure_webhook(
     return str(created["id"]), str(created.get("secret") or secret)
 
 
-def ensure_api_key(admin: BTCPayAdmin, config: Config, store_id: str, known_key: str) -> str:
+def ensure_api_key(
+    admin: BTCPayAdmin, config: Config, store_id: str, known_key: str, *, can_mint: bool
+) -> str:
     required = set(store_scopes(store_id))
     if known_key:
         response = httpx.get(
@@ -340,6 +404,15 @@ def ensure_api_key(admin: BTCPayAdmin, config: Config, store_id: str, known_key:
         else:
             log("recorded greenfield API key no longer works; issuing a new one")
 
+    if not can_mint:
+        raise BootstrapError(
+            "the runtime API key needs re-issuing, but this run authenticated with the "
+            "bootstrap key, which cannot create API keys (only Basic auth or an "
+            "unrestricted key can, and this project does not hold one). "
+            "Enable Greenfield Basic auth for the admin in the BTCPay UI and re-run, or "
+            "wipe the dev stack with "
+            "`docker compose -f deploy/docker-compose.regtest.yml down -v`."
+        )
     created = admin.json(
         "POST",
         "/api/v1/api-keys",
@@ -375,16 +448,21 @@ def main() -> int:
         config.admin_email = existing["BTCPAY_ADMIN_EMAIL"]
 
     wait_for_btcpay(config)
-    admin = ensure_admin_user(config)
+    admin, can_mint = connect(config, existing)
     try:
         store = ensure_store(admin, config.store_name)
         ensure_store_policies(admin, store)
         store_id = str(store["id"])
+        bootstrap_key = existing.get("BTCPAY_BOOTSTRAP_KEY", "")
+        if can_mint:
+            bootstrap_key = ensure_bootstrap_key(admin, store_id, bootstrap_key)
         ensure_hot_wallet(admin, store_id)
         webhook_id, webhook_secret = ensure_webhook(
             admin, store_id, config.webhook_url, existing.get("BTCPAY_WEBHOOK_SECRET", "")
         )
-        api_key = ensure_api_key(admin, config, store_id, existing.get("BTCPAY_API_KEY", ""))
+        api_key = ensure_api_key(
+            admin, config, store_id, existing.get("BTCPAY_API_KEY", ""), can_mint=can_mint
+        )
         configure_payout_processor(store_id)
     finally:
         admin.close()
@@ -394,6 +472,7 @@ def main() -> int:
         "BTCPAY_PUBLIC_URL": config.url,
         "BTCPAY_STORE_ID": store_id,
         "BTCPAY_API_KEY": api_key,
+        "BTCPAY_BOOTSTRAP_KEY": bootstrap_key,
         "BTCPAY_WEBHOOK_ID": webhook_id,
         "BTCPAY_WEBHOOK_SECRET": webhook_secret,
         "BTCPAY_ADMIN_EMAIL": config.admin_email,

@@ -131,12 +131,24 @@ services:
     depends_on:
       postgres-ledger:
         condition: service_healthy
-    environment:
+    environment: &api_env
       ENVIRONMENT: development
       DEBUG: "false"
       LOG_JSON: "false"
       DATABASE_URL: postgresql://cpapi:cpapi@postgres-ledger:5432/cpapi
       BTCPAY_URL: http://btcpayserver:49392
+      # Short enough that the late-payment drill does not take an afternoon,
+      # long enough that an ordinary deposit is never racing the clock.
+      DEPOSIT_INVOICE_EXPIRY_MIN_BTC: "2"
+      # Fast loops so a drill finishes while you are still watching it.
+      WEBHOOK_POLL_INTERVAL_SECONDS: "2"
+      RECONCILE_DEPOSIT_INTERVAL_SECONDS: "15"
+      WALLET_SCAN_INTERVAL_SECONDS: "30"
+    # Written by scripts/bootstrap_btcpay.py; absent until it has run once,
+    # which is why the api can still start and answer /healthz without it.
+    env_file: &api_env_file
+      - path: ../.env.regtest.generated
+        required: false
     ports:
       - "127.0.0.1:${CPAPI_HOST_PORT:-8095}:8000"
     command:
@@ -145,6 +157,19 @@ services:
       - >-
         python -m crypto_processing_api.cli migrate &&
         uvicorn crypto_processing_api.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    # Same image, different command. Webhooks only reduce latency; this is the
+    # process that makes deposits correct.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    environment: *api_env
+    env_file: *api_env_file
+    command: ["python", "-m", "crypto_processing_api.workers.runner"]
 
 volumes:
   btcpay_postgres:
