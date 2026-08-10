@@ -9,6 +9,12 @@
 # money to send.
 set -eu
 
+# Git Bash rewrites anything that looks like a POSIX path into a Windows one,
+# which turns -datadir=/data into -datadir=C:/Program Files/Git/data.
+case "$(uname -s 2>/dev/null || echo unknown)" in
+MINGW* | MSYS*) MSYS_NO_PATHCONV=1 && export MSYS_NO_PATHCONV ;;
+esac
+
 BLOCKS="${1:-1}"
 ADDRESS="${2:-}"
 COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.regtest.yml}"

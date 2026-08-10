@@ -225,6 +225,7 @@ def lock_asset_gate(session: Session, asset_id: str) -> Account:
             Account.external_user_id.is_(None),
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if account is None:
         raise AccountNotFound(f"hot_wallet account for asset {asset_id} does not exist")
@@ -236,11 +237,18 @@ def _lock_accounts(session: Session, account_ids: Iterable[int]) -> dict[int, Ac
 
     A single `... WHERE id IN (...) ORDER BY id FOR UPDATE` does not guarantee
     lock acquisition order, and deadlock freedom here depends on that order.
+
+    `populate_existing` matters: without it SQLAlchemy hands back the identity
+    map's copy of the row, so a caller that reads `balance` after taking the
+    lock could act on a value from before the lock was granted.
     """
     locked: dict[int, Account] = {}
     for account_id in sorted(account_ids):
         account = session.execute(
-            select(Account).where(Account.id == account_id).with_for_update()
+            select(Account)
+            .where(Account.id == account_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if account is None:
             raise AccountNotFound(f"account {account_id} does not exist")

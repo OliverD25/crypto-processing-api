@@ -13,8 +13,11 @@
 # USDT is not testable here. There is no TRON regtest; the USDt plugin ships
 # Nile testnet support, which needs network access and lives in M4.
 #
-# Published host ports avoid 8080 entirely: it is permanently occupied on some
-# developer machines.
+# Published host ports never use 8080, which is permanently occupied on some
+# developer machines. Both published ports are overridable, because "a free
+# port" is a property of your machine, not of this file:
+#
+#   CPAPI_HOST_PORT=9001 BTCPAY_HOST_PORT=14143 docker compose -f ... up -d
 name: cpapi-regtest
 
 services:
@@ -115,7 +118,7 @@ services:
         User ID=postgres;Password=postgres;Host=postgres-btcpay;Port=5432;
         Application Name=btcpayserver;MaxPoolSize=80;Database=nbxplorerregtest
     ports:
-      - "127.0.0.1:14142:49392"
+      - "127.0.0.1:${BTCPAY_HOST_PORT:-14142}:49392"
     volumes:
       - btcpay_datadir:/datadir
       - btcpay_pluginsdir:/root/.btcpayserver/Plugins
@@ -135,7 +138,7 @@ services:
       DATABASE_URL: postgresql://cpapi:cpapi@postgres-ledger:5432/cpapi
       BTCPAY_URL: http://btcpayserver:49392
     ports:
-      - "127.0.0.1:8090:8000"
+      - "127.0.0.1:${CPAPI_HOST_PORT:-8095}:8000"
     command:
       - sh
       - -c

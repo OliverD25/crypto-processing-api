@@ -51,7 +51,7 @@ packages = ["src/crypto_processing_api"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests", "scripts"]
+src = [".", "src"]
 # The design documents are a historical record of what was decided and why.
 # Reformatting their code sketches would rewrite the record.
 extend-exclude = ["docs"]
@@ -84,7 +84,7 @@ extend-immutable-calls = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106", "S311"]
+"tests/**" = ["B008", "S105", "S106", "S311"]
 "scripts/**" = ["S105", "S106"]
 "migrations/versions/*" = ["E501"]
 
@@ -104,6 +104,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: needs a real PostgreSQL instance (deploy/docker-compose.test.yml)",
+    "no_ledger_check: skip the post-test derived-vs-materialized assertion",
 ]
 
 [tool.coverage.run]
