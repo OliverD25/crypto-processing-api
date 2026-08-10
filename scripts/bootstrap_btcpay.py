@@ -70,7 +70,16 @@ def store_scopes(store_id: str) -> list[str]:
     return [
         f"btcpay.store.cancreateinvoice:{store_id}",
         f"btcpay.store.canviewinvoices:{store_id}",
-        f"btcpay.store.canmanagepullpayments:{store_id}",
+        # Payout creation is guarded by its own pair of scopes in 2.4.2, and
+        # `approved: true` needs the non-approved one: our service decides
+        # approval, so BTCPay's AwaitingApproval stage is skipped.
+        f"btcpay.store.cancreatepullpayments:{store_id}",
+        f"btcpay.store.cancreatenonapprovedpullpayments:{store_id}",
+        # Reading, cancelling and marking payouts. The swagger says
+        # canmanagepullpayments; the running 2.4.2 answers 403 with
+        # missingPermission "btcpay.store.canmanagepayouts". The server wins,
+        # and the fact sheet flagged exactly this as unverified.
+        f"btcpay.store.canmanagepayouts:{store_id}",
         f"btcpay.store.canviewstoresettings:{store_id}",
         # Read-only wallet access. Needed by the unattributed-receive scan,
         # which is the only thing that finds coins paid to an address BTCPay
@@ -422,20 +431,41 @@ def ensure_api_key(
     return str(created["apiKey"])
 
 
-def configure_payout_processor(store_id: str) -> None:
-    """M3 STUB — intentionally does nothing yet.
+def configure_payout_processor(admin: BTCPayAdmin, store_id: str) -> None:
+    """Configure the automated on-chain sender.
 
-    BTC withdrawals are M3. When they land, this configures
-    OnChainAutomatedPayoutSenderFactory for BTC-CHAIN with
-    intervalSeconds=5 on regtest (600 in production), feeTargetBlock=3 and
-    processNewPayoutsInstantly=true, via
-    PUT /api/v1/stores/{storeId}/payout-processors/
-        OnChainAutomatedPayoutSenderFactory/BTC-CHAIN
+    This is the component that actually broadcasts. It requires a hot wallet,
+    which is why the wallet is generated with savePrivateKeys.
 
-    It is not configured now on purpose: a processor that broadcasts payouts
-    should not exist before the code that decides which payouts are legal.
+    The design called for a 5-second interval on regtest. BTCPay 2.4.2 refuses
+    it: "The minimum interval is 60 seconds". That does not slow the drills
+    down, because `processNewPayoutsInstantly` makes a freshly created payout
+    go out immediately; the interval only governs the sweep that catches
+    anything the instant path missed.
+
+    Production leaves it at ten minutes so the processor can batch several
+    payouts into one transaction and pay one miner fee instead of several.
     """
-    log(f"payout processor for store {store_id}: skipped, arrives with M3 withdrawals")
+    interval = max(int(os.environ.get("BTCPAY_PAYOUT_INTERVAL_SECONDS", "60")), 60)
+    body = {
+        "intervalSeconds": interval,
+        "feeTargetBlock": int(os.environ.get("BTCPAY_FEE_TARGET_BLOCK", "3")),
+        "threshold": "0",
+        "processNewPayoutsInstantly": True,
+    }
+    response = admin.request(
+        "PUT",
+        f"/api/v1/stores/{store_id}/payout-processors/"
+        f"OnChainAutomatedPayoutSenderFactory/{BTC_PAYMENT_METHOD_ID}",
+        json=body,
+    )
+    if response.status_code >= 400:
+        raise BootstrapError(
+            "could not configure the on-chain payout processor "
+            f"({response.status_code}: {response.text[:300]}). Without it approved payouts "
+            "are created but never broadcast."
+        )
+    log(f"payout processor configured: every {interval}s, fee target 3 blocks")
 
 
 def main() -> int:
@@ -463,7 +493,7 @@ def main() -> int:
         api_key = ensure_api_key(
             admin, config, store_id, existing.get("BTCPAY_API_KEY", ""), can_mint=can_mint
         )
-        configure_payout_processor(store_id)
+        configure_payout_processor(admin, store_id)
     finally:
         admin.close()
 

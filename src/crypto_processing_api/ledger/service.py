@@ -183,6 +183,22 @@ def get_user_accounts(
     return available, hold
 
 
+def lock_user_accounts(
+    session: Session, *, asset_id: str, external_user_id: str
+) -> tuple[Account, Account]:
+    """Provision then lock `(user_available, user_hold)` in ascending id order.
+
+    Callers that read a balance to decide something must lock first. Reading
+    before the lock is the classic double-spend window: two requests both see
+    the same available balance and both decide they can afford it.
+    """
+    available, hold = get_user_accounts(
+        session, asset_id=asset_id, external_user_id=external_user_id
+    )
+    locked = _lock_accounts(session, (available.id, hold.id))
+    return locked[available.id], locked[hold.id]
+
+
 def ensure_system_accounts(session: Session, asset_id: str) -> list[Account]:
     return [
         get_or_create_account(session, asset_id=asset_id, kind=kind)

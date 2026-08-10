@@ -6,8 +6,7 @@ forever if webhooks were the truth path. These jobs ask BTCPay what actually
 happened and feed the answer through the same `apply_invoice_state` the
 webhook handler uses.
 
-Job A here is deposits. Job B (withdrawals) arrives with M3, Job C (invariants)
-with M5.
+Job A here is deposits, Job B withdrawals. Job C (invariants) arrives with M5.
 """
 
 from __future__ import annotations
@@ -26,6 +25,8 @@ from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway, BTCPayNotFound
 from crypto_processing_api.ledger.models import Asset, Deposit, DepositPayment, WalletTxoAlert
 from crypto_processing_api.services import deposits as deposit_service
+from crypto_processing_api.services import withdrawals as withdrawal_service
+from crypto_processing_api.services.backends import BtcpayPayoutBackend
 
 logger = get_logger(__name__)
 
@@ -288,3 +289,66 @@ def _as_int(value: str | int | None) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+@dataclass
+class WithdrawalSweepReport:
+    checked: int = 0
+    changed: int = 0
+    errors: int = 0
+
+
+def sweep_withdrawals(
+    session_factory: Callable[[], Session],
+    gateway: BTCPayGateway,
+    settings: Settings,
+    *,
+    limit: int = 100,
+) -> WithdrawalSweepReport:
+    """Job B. Ask BTCPay about every payout that has not reached a terminal state.
+
+    Payout webhooks are the fast path and this is the correctness path, exactly
+    as with deposits: both call `apply_payout_state`, so a webhook racing a
+    poll cannot produce a conflict.
+    """
+    report = WithdrawalSweepReport()
+
+    with session_factory() as session:
+        due = withdrawal_service.due_for_polling(session, limit=limit)
+
+    for withdrawal_id in due:
+        with session_factory() as session:
+            withdrawal = withdrawal_service.get(session, withdrawal_id)
+            asset = withdrawal_service.get_asset(
+                session, withdrawal.asset_id, require_enabled=False
+            )
+            backend_ref = withdrawal.backend_ref
+            if not backend_ref:
+                continue
+            backend = BtcpayPayoutBackend(gateway, payout_method_id=asset.btcpay_payment_method)
+            previous = withdrawal.status
+            try:
+                payout = backend.poll_status(backend_ref)
+                withdrawal_service.apply_payout_state(
+                    session, withdrawal_id=withdrawal_id, payout=payout
+                )
+                session.commit()
+            except (BTCPayError, withdrawal_service.WithdrawalError) as exc:
+                session.rollback()
+                report.errors += 1
+                logger.warning(
+                    "withdrawal_sweep.failed", withdrawal_id=str(withdrawal_id), error=str(exc)
+                )
+                continue
+
+            report.checked += 1
+            refreshed = withdrawal_service.get(session, withdrawal_id)
+            if refreshed.status != previous:
+                report.changed += 1
+                logger.info(
+                    "withdrawal_sweep.caught_change",
+                    withdrawal_id=str(withdrawal_id),
+                    previous=previous.value,
+                    status=refreshed.status.value,
+                )
+    return report

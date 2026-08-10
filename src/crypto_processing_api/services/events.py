@@ -24,6 +24,11 @@ DEPOSIT_SETTLED = "deposit.settled"
 DEPOSIT_REVIEW = "deposit.review_required"
 DEPOSIT_EXPIRED = "deposit.expired"
 
+WITHDRAWAL_PENDING_APPROVAL = "withdrawal.pending_approval"
+WITHDRAWAL_BROADCAST = "withdrawal.broadcast"
+WITHDRAWAL_COMPLETED = "withdrawal.completed"
+WITHDRAWAL_FAILED = "withdrawal.failed"
+
 
 def emit(session: Session, *, event_type: str, payload: dict[str, Any]) -> OutboundEvent:
     """Queue one event. Never commits — the caller's transaction owns it."""

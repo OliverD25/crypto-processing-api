@@ -50,6 +50,9 @@ class AccountKind(StrEnum):
 class EntryKind(StrEnum):
     DEPOSIT_CREDIT = "deposit_credit"
     WITHDRAWAL_HOLD = "withdrawal_hold"
+    #: Custody committed to a payout: it has left the wallet's control but the
+    #: transaction is not confirmed yet.
+    WITHDRAWAL_SUBMIT = "withdrawal_submit"
     WITHDRAWAL_SETTLE = "withdrawal_settle"
     WITHDRAWAL_RELEASE = "withdrawal_release"
     ADJUSTMENT = "adjustment"
@@ -324,9 +327,21 @@ class Withdrawal(Base):
     backend_ref: Mapped[str | None] = mapped_column(Text, unique=True)
     txid: Mapped[str | None] = mapped_column(Text)
     hold_entry_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("journal_entries.id"))
+    submit_entry_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("journal_entries.id")
+    )
     settle_entry_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("journal_entries.id")
     )
+    release_entry_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("journal_entries.id")
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_by: Mapped[str | None] = mapped_column(Text)
+    released_by: Mapped[str | None] = mapped_column(Text)
+    #: Why the money is not going to arrive. Required to release a hold once a
+    #: transaction may already be in flight.
+    release_attestation: Mapped[str | None] = mapped_column(Text)
     failure_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

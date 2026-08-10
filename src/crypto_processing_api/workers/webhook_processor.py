@@ -12,6 +12,7 @@ the handler re-fetches the invoice from Greenfield and lets
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,8 +22,9 @@ from sqlalchemy.orm import Session
 
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayGateway, BTCPayNotFound
-from crypto_processing_api.ledger.models import Deposit, WebhookEvent
+from crypto_processing_api.ledger.models import Deposit, WebhookEvent, Withdrawal
 from crypto_processing_api.services import deposits as deposit_service
+from crypto_processing_api.services import withdrawals as withdrawal_service
 
 logger = get_logger(__name__)
 
@@ -33,6 +35,8 @@ STATUS_IGNORED = "ignored"
 STATUS_ORPHANED = "orphaned"
 
 #: Events that move deposit state. Everything else is recorded and ignored.
+PAYOUT_EVENTS = frozenset({"PayoutCreated", "PayoutApproved", "PayoutUpdated"})
+
 INVOICE_EVENTS = frozenset(
     {
         "InvoiceCreated",
@@ -90,8 +94,9 @@ def _find_deposit(session: Session, event: WebhookEvent) -> Deposit | None:
 
 def handle_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) -> str:
     """Return the status this event should end in."""
+    if event.event_type in PAYOUT_EVENTS:
+        return _handle_payout_event(session, gateway, event)
     if event.event_type.startswith("Payout"):
-        # M3 owns withdrawals. Recording and skipping keeps the audit trail.
         return STATUS_IGNORED
     if event.event_type not in INVOICE_EVENTS:
         return STATUS_IGNORED
@@ -114,6 +119,42 @@ def handle_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) 
 
     invoice = gateway.get_invoice(event.btcpay_invoice_id)
     deposit_service.apply_invoice_state(session, gateway, deposit_id=deposit.id, invoice=invoice)
+    return STATUS_PROCESSED
+
+
+def _handle_payout_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) -> str:
+    """Payout events carry ids and states, never amounts or transaction ids.
+
+    So the handler always follows up with a GET: the txid lives in
+    `paymentProof`, which the webhook payload does not include, and the state
+    in the payload can already be stale by the time we read it.
+    """
+    payout_id = event.btcpay_payout_id
+    if not payout_id:
+        return STATUS_IGNORED
+
+    withdrawal = session.execute(
+        select(Withdrawal).where(Withdrawal.backend_ref == payout_id)
+    ).scalar_one_or_none()
+
+    payout = gateway.get_payout(payout_id)
+    if withdrawal is None:
+        # Correlate by the metadata BTCPay echoes back. This is the case a
+        # crashed submission leaves behind: the payout exists, our row never
+        # learned its id.
+        echoed = payout.metadata.get("withdrawal_id")
+        if echoed:
+            try:
+                withdrawal = session.get(Withdrawal, uuid.UUID(str(echoed)))
+            except ValueError:
+                withdrawal = None
+        if withdrawal is None:
+            if payout.metadata.get("cpapi"):
+                logger.warning("webhook.payout_orphan", payout=payout_id)
+                return STATUS_ORPHANED
+            return STATUS_IGNORED
+
+    withdrawal_service.apply_payout_state(session, withdrawal_id=withdrawal.id, payout=payout)
     return STATUS_PROCESSED
 
 

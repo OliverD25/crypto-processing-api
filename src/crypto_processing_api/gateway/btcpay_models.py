@@ -118,3 +118,61 @@ class Webhook(TransportModel):
     url: str
     enabled: bool = True
     secret: str | None = None
+
+
+PayoutState = Literal["AwaitingApproval", "AwaitingPayment", "InProgress", "Completed", "Cancelled"]
+
+
+class PayoutPaymentProof(TransportModel):
+    """How BTCPay says a payout was paid.
+
+    `proofType` is the only guaranteed field; everything else is per-type. For
+    on-chain payouts the transaction id arrives as `id`, and older or plugin
+    payout handlers have been seen using `link`, so both are read.
+    """
+
+    proof_type: str | None = Field(default=None, alias="proofType")
+    id: str | None = None
+    link: str | None = None
+
+    @property
+    def txid(self) -> str | None:
+        if self.id:
+            return self.id
+        if self.link:
+            # Block explorer links end in the transaction id.
+            return self.link.rstrip("/").rsplit("/", 1)[-1] or None
+        return None
+
+
+class Payout(TransportModel):
+    """A BTCPay payout.
+
+    Field names verified against the running 2.4.2, not the design documents:
+    it is `payoutMethodId`, not `paymentMethod`, and the amount after approval
+    is `payoutAmount`.
+    """
+
+    id: str
+    revision: int | None = None
+    pull_payment_id: str | None = Field(default=None, alias="pullPaymentId")
+    date: str | int | None = None
+    destination: str
+    original_amount: str | None = Field(default=None, alias="originalAmount")
+    original_currency: str | None = Field(default=None, alias="originalCurrency")
+    payout_amount: str | None = Field(default=None, alias="payoutAmount")
+    payout_currency: str | None = Field(default=None, alias="payoutCurrency")
+    payout_method_id: str | None = Field(default=None, alias="payoutMethodId")
+    state: PayoutState
+    payment_proof: PayoutPaymentProof | None = Field(default=None, alias="paymentProof")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def txid(self) -> str | None:
+        return self.payment_proof.txid if self.payment_proof else None
+
+
+class FeeRate(TransportModel):
+    """Sats per virtual byte, as BTCPay's wallet reports it."""
+
+    fee_rate: str | float = Field(alias="feeRate")

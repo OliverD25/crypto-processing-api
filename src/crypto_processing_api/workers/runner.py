@@ -30,7 +30,7 @@ from crypto_processing_api.core.redaction import configure_logging, get_logger
 from crypto_processing_api.db import get_session_factory, session_scope
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.services.assets import sync_payment_methods
-from crypto_processing_api.workers import reconciliation, webhook_processor
+from crypto_processing_api.workers import payout_submitter, reconciliation, webhook_processor
 
 logger = get_logger(__name__)
 
@@ -43,6 +43,9 @@ JOB_DEPOSIT_SWEEP = 2
 JOB_ADOPT_CREATING = 3
 JOB_ORPHAN_SCAN = 4
 JOB_WALLET_SCAN = 5
+JOB_PAYOUT_SUBMIT = 6
+JOB_WITHDRAWAL_SWEEP = 7
+JOB_STUCK_SUBMITTING = 8
 
 
 @dataclass
@@ -108,6 +111,24 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             lock_key=JOB_ADOPT_CREATING,
             interval_seconds=settings.reconcile_deposit_interval_seconds,
             run=lambda: reconciliation.adopt_stuck_creating(factory, gateway, settings),
+        ),
+        Job(
+            name="payout_submit",
+            lock_key=JOB_PAYOUT_SUBMIT,
+            interval_seconds=settings.withdrawal_submit_interval_seconds,
+            run=lambda: payout_submitter.submit_approved(factory, gateway, settings),
+        ),
+        Job(
+            name="withdrawal_sweep",
+            lock_key=JOB_WITHDRAWAL_SWEEP,
+            interval_seconds=settings.reconcile_withdrawal_interval_seconds,
+            run=lambda: reconciliation.sweep_withdrawals(factory, gateway, settings),
+        ),
+        Job(
+            name="stuck_submitting",
+            lock_key=JOB_STUCK_SUBMITTING,
+            interval_seconds=settings.reconcile_withdrawal_interval_seconds,
+            run=lambda: payout_submitter.resolve_stuck(factory, gateway, settings),
         ),
         Job(
             name="orphan_scan",

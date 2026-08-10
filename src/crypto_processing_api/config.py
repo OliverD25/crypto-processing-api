@@ -15,6 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
 FeeMode = Literal["deduct", "absorb"]
+BitcoinNetwork = Literal["mainnet", "testnet", "signet", "regtest"]
 
 KEY_PREFIX_LIVE = "cpk_live_"
 KEY_PREFIX_TEST = "cpk_test_"
@@ -70,6 +71,16 @@ class Settings(BaseSettings):
 
     withdrawal_fee_mode: FeeMode = "deduct"
     usdt_auto_withdraw: bool = False
+
+    bitcoin_network: BitcoinNetwork = "mainnet"
+    btc_fee_target_blocks: int = Field(default=3, ge=1)
+    btc_payout_vsize_vb: int = Field(default=300, ge=1)
+    btc_fallback_fee_sat_per_vb: int = Field(default=20, ge=1)
+    btc_dust_threshold_sat: int = Field(default=546, ge=0)
+    mempool_space_url: OptionalStr = "https://mempool.space/api/v1/fees/recommended"
+    withdrawal_submit_interval_seconds: float = Field(default=10.0, gt=0)
+    reconcile_withdrawal_interval_seconds: float = Field(default=60.0, gt=0)
+    stuck_submitting_seconds: int = Field(default=300, ge=30)
     deposit_invoice_expiry_min_btc: int = Field(default=60, ge=1)
     deposit_invoice_expiry_min_usdt: int = Field(default=60, ge=1)
     deposit_monitoring_minutes: int = Field(default=1440, ge=1)
@@ -109,6 +120,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SEED_USDT_WITHDRAWAL_AUTO_LIMIT above SEED_USDT_WITHDRAWAL_DAILY_CAP would let a "
                 "single withdrawal exceed the 24h cap"
+            )
+        if self.environment == "production" and self.bitcoin_network != "mainnet":
+            raise ValueError(
+                "BITCOIN_NETWORK is not mainnet in a production environment; withdrawal "
+                "addresses would be validated against the wrong network"
             )
         if self.deposit_monitoring_minutes < self.deposit_invoice_expiry_min_btc:
             raise ValueError(

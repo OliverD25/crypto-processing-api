@@ -1,4 +1,4 @@
-"""Admin endpoints: the deposit review queue and unattributed wallet receives."""
+"""Admin endpoints: the deposit review queue, the withdrawal queue, wallet alerts."""
 
 from __future__ import annotations
 
@@ -6,19 +6,21 @@ import uuid
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from crypto_processing_api.api.deposits import serialize_deposit
 from crypto_processing_api.api.middleware import get_gateway, require_admin
+from crypto_processing_api.api.withdrawals import serialize_withdrawal
 from crypto_processing_api.core import auth
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.db import db_session
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
-from crypto_processing_api.ledger.models import WalletTxoAlert
+from crypto_processing_api.ledger.models import WalletTxoAlert, WithdrawalStatus
 from crypto_processing_api.services import deposits as deposit_service
+from crypto_processing_api.services import withdrawals as withdrawal_service
 
 router = APIRouter(tags=["admin"], prefix="/v1/admin")
 logger = get_logger(__name__)
@@ -132,3 +134,123 @@ def wallet_alerts(
             }
         )
     return {"alerts": items}
+
+
+class ApproveWithdrawalRequest(BaseModel):
+    note: str | None = None
+
+
+class RejectWithdrawalRequest(BaseModel):
+    reason: str | None = None
+
+
+class ReleaseWithdrawalRequest(BaseModel):
+    """A release after submission is an assertion about the chain.
+
+    The operator is stating that they looked and the transaction will not
+    arrive — it was never broadcast, or it was double-spent. The text is stored
+    on the withdrawal so the decision has an author and a reason.
+    """
+
+    attestation: str = Field(min_length=10, max_length=2000)
+
+
+@router.get("/withdrawals", response_model=None)
+def withdrawal_queue(
+    _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, Any]:
+    parsed: WithdrawalStatus | None = None
+    if status_filter is not None:
+        try:
+            parsed = WithdrawalStatus(status_filter)
+        except ValueError as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown status {status_filter!r}"
+            ) from exc
+
+    rows = withdrawal_service.list_by_status(session, status=parsed, limit=limit)
+    items = []
+    for withdrawal in rows:
+        asset = withdrawal_service.get_asset(session, withdrawal.asset_id, require_enabled=False)
+        item = serialize_withdrawal(withdrawal, decimals=asset.decimals)
+        item["approved_by"] = withdrawal.approved_by
+        item["rejected_by"] = withdrawal.rejected_by
+        item["released_by"] = withdrawal.released_by
+        item["release_attestation"] = withdrawal.release_attestation
+        item["backend_ref"] = withdrawal.backend_ref
+        items.append(item)
+    return {"withdrawals": items}
+
+
+def _withdrawal_response(session: Session, withdrawal_id: uuid.UUID) -> dict[str, Any]:
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    asset = withdrawal_service.get_asset(session, withdrawal.asset_id, require_enabled=False)
+    return serialize_withdrawal(withdrawal, decimals=asset.decimals)
+
+
+@router.post("/withdrawals/{withdrawal_id}/approve", response_model=None)
+def approve_withdrawal(
+    withdrawal_id: uuid.UUID,
+    _payload: ApproveWithdrawalRequest,
+    key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+) -> dict[str, Any]:
+    try:
+        withdrawal_service.approve(session, withdrawal_id, actor=key.key_id)
+    except withdrawal_service.WithdrawalNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc
+    except withdrawal_service.IllegalTransition as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _withdrawal_response(session, withdrawal_id)
+
+
+@router.post("/withdrawals/{withdrawal_id}/reject", response_model=None)
+def reject_withdrawal(
+    withdrawal_id: uuid.UUID,
+    payload: RejectWithdrawalRequest,
+    key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+) -> dict[str, Any]:
+    try:
+        withdrawal_service.reject(session, withdrawal_id, actor=key.key_id, reason=payload.reason)
+    except withdrawal_service.WithdrawalNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc
+    except withdrawal_service.IllegalTransition as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _withdrawal_response(session, withdrawal_id)
+
+
+@router.post("/withdrawals/{withdrawal_id}/release", response_model=None)
+def release_withdrawal(
+    withdrawal_id: uuid.UUID,
+    payload: ReleaseWithdrawalRequest,
+    key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+) -> dict[str, Any]:
+    """Give a hold back after a payout may already exist.
+
+    Never automatic, and never derived from a backend status. The scenario is
+    a payout stuck in the mempool: call it failed, refund the user, and then
+    watch the original transaction confirm.
+    """
+    try:
+        withdrawal_service.admin_release(
+            session, withdrawal_id, actor=key.key_id, attestation=payload.attestation
+        )
+    except withdrawal_service.WithdrawalNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc
+    except withdrawal_service.ReleaseNotPermitted as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except withdrawal_service.WithdrawalError as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _withdrawal_response(session, withdrawal_id)

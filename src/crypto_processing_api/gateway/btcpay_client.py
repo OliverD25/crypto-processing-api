@@ -24,8 +24,10 @@ import httpx
 
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_models import (
+    FeeRate,
     Invoice,
     InvoicePaymentMethod,
+    Payout,
     StorePaymentMethod,
     WalletOverview,
     WalletTransaction,
@@ -121,6 +123,23 @@ class BTCPayGateway(Protocol):
     ) -> list[StorePaymentMethod]: ...
 
     def get_wallet(self, payment_method_id: str) -> WalletOverview: ...
+
+    def get_fee_rate(self, payment_method_id: str, *, block_target: int) -> float: ...
+
+    def create_payout(
+        self,
+        *,
+        destination: str,
+        amount: str,
+        payout_method_id: str,
+        metadata: dict[str, Any],
+    ) -> Payout: ...
+
+    def get_payout(self, payout_id: str) -> Payout: ...
+
+    def list_payouts(self, *, include_cancelled: bool = False) -> list[Payout]: ...
+
+    def cancel_payout(self, payout_id: str) -> bool: ...
 
     def get_wallet_transactions(
         self, payment_method_id: str, *, skip: int = 0, limit: int = 100
@@ -301,6 +320,88 @@ class BTCPayClient:
             params={"skip": skip, "limit": limit},
         )
         return [WalletTransaction.model_validate(item) for item in payload]
+
+    def get_fee_rate(self, payment_method_id: str, *, block_target: int) -> float:
+        payload = self._get(
+            f"/api/v1/stores/{self.store_id}/payment-methods/{payment_method_id}/wallet/feerate",
+            params={"blockTarget": block_target},
+        )
+        return float(FeeRate.model_validate(payload).fee_rate)
+
+    # -- payouts ----------------------------------------------------------
+
+    def create_payout(
+        self,
+        *,
+        destination: str,
+        amount: str,
+        payout_method_id: str,
+        metadata: dict[str, Any],
+    ) -> Payout:
+        """Create an already-approved payout.
+
+        `approved: true` because the approval decision belongs to this service,
+        not to BTCPay: our limits and velocity caps have already run, and
+        BTCPay's own AwaitingApproval stage would just be a second queue nobody
+        watches.
+
+        Verified against the running 2.4.2: `metadata` is echoed back on
+        GET /api/v1/payouts/{id} and in the store payout list, which is what
+        makes `metadata.withdrawal_id` a correlation key rather than a
+        convenience.
+        """
+        payload = self._post(
+            f"/api/v1/stores/{self.store_id}/payouts",
+            json={
+                "destination": destination,
+                "amount": amount,
+                "payoutMethodId": payout_method_id,
+                "approved": True,
+                "metadata": metadata,
+            },
+        )
+        return Payout.model_validate(payload)
+
+    def get_payout(self, payout_id: str) -> Payout:
+        return Payout.model_validate(self._get(f"/api/v1/payouts/{payout_id}"))
+
+    def list_payouts(self, *, include_cancelled: bool = False) -> list[Payout]:
+        payload = self._get(
+            f"/api/v1/stores/{self.store_id}/payouts",
+            params={"includeCancelled": str(include_cancelled).lower()},
+        )
+        return [Payout.model_validate(item) for item in payload]
+
+    def cancel_payout(self, payout_id: str) -> bool:
+        """Best effort. BTCPay refuses once the payout is already in flight."""
+        try:
+            self._send("DELETE", f"/api/v1/payouts/{payout_id}")
+        except (BTCPayValidation, BTCPayNotFound) as exc:
+            logger.warning("btcpay.cancel_refused", payout=payout_id, error=str(exc))
+            return False
+        return True
+
+    def upsert_payout_processor(
+        self,
+        payout_method_id: str,
+        *,
+        interval_seconds: int,
+        fee_target_block: int,
+        process_new_payouts_instantly: bool,
+        threshold: str = "0",
+    ) -> None:
+        """Configure the automated on-chain sender. Requires a hot wallet."""
+        self._send(
+            "PUT",
+            f"/api/v1/stores/{self.store_id}/payout-processors/"
+            f"OnChainAutomatedPayoutSenderFactory/{payout_method_id}",
+            json={
+                "intervalSeconds": interval_seconds,
+                "feeTargetBlock": fee_target_block,
+                "threshold": threshold,
+                "processNewPayoutsInstantly": process_new_payouts_instantly,
+            },
+        )
 
     def redeliver_webhook(self, webhook_id: str, delivery_id: str) -> None:
         """Used by the regtest replay drill; BTCPay reuses `originalDeliveryId`."""
