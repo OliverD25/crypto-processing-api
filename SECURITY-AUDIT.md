@@ -278,6 +278,107 @@ found in the same commit is how a ruleset quietly stops working.
 
 ---
 
+## Runner isolation — the nightly end-to-end job
+
+The nightly end-to-end run needs the whole regtest stack, so it runs on hardware
+the maintainer owns. That hardware also runs unrelated production workloads, and
+this repository is public. Attaching a self-hosted runner to a public repository
+is one of the easiest ways to lose a machine, so this section records exactly
+what stops that and what is still open.
+
+[`docs/nightly-e2e.md`](docs/nightly-e2e.md) is the reusable, machine-agnostic
+version of the same design.
+
+**Last verified: 2026-08-11**, by dispatching the nightly and reading the run.
+
+### The structural control: no runner is registered to this repository
+
+For `pull_request` events GitHub takes workflow files from the pull request's
+merge ref, so a fork can add `runs-on: [self-hosted]` to any workflow it
+touches. Approval settings are a human gate, and runner groups — the correct
+org-level answer — do not exist for personal accounts.
+
+So the runner is registered to a **separate private ops repository**
+(`OliverD25/crypto-processing-api-nightly`), and the nightly workflow checks
+*this* repository out as data, pinned to `main`. A fork pull request cannot
+reach the runner because there is no registration to reach. This is not a
+setting that can be turned back on by mistake.
+
+| Property | State |
+| --- | --- |
+| Self-hosted runner registered to this public repo | **None, ever.** `gh api repos/OliverD25/crypto-processing-api/actions/runners` returns `total_count: 0` |
+| Nightly workflow triggers | `schedule` + `workflow_dispatch` only |
+| What the nightly checks out | this repo, `ref: main`, `persist-credentials: false` |
+| Actions in the nightly | pinned by full 40-character commit SHA |
+| Container images in the nightly | pinned by digest |
+
+### Defence in depth on the machine
+
+Structural isolation removes malicious code. These fences bound *accidental*
+damage to the co-hosted workloads.
+
+| Control | How it is implemented | Status |
+| --- | --- | --- |
+| CI never touches the production Docker daemon | The nightly runs on a **rootless** Docker daemon owned by an unprivileged user, with its own socket, data-root and network namespace. That user is not in the `docker` group, so the production socket is unreachable, not merely unmounted. | **Live** |
+| Total teardown | A sibling `docker:dind` container holds everything the job builds and runs, so `down -v` plus a prune really does return the machine to its starting state. The inner Docker API is bound to loopback inside the network namespace the runner shares, so containers of the stack under test cannot reach it. | **Live** — proven by probing the bridge gateway from an inner container |
+| Resource fences | dind `cpus: 3`, `mem_limit: 8g`, `pids_limit: 2048`; runner `cpus: 1`, `mem_limit: 1g`, `pids_limit: 1024`. Enforced through cgroup delegation to the user slice. | **Live** — read back from `docker inspect` |
+| Private-network egress fence | RFC1918, link-local and CGNAT ranges are rejected for all nightly containers. Rules live inside RootlessKit's own network namespace, so the host firewall is untouched. | **Live** — re-proved as the nightly's second step |
+| Disk bound | A timer stops the stack if free space falls below a floor or the CI data-root grows past a cap; the nightly separately asserts free space after teardown and fails if it is short. | **Live, with a gap — see below** |
+| No long-lived runner credential | Each job gets a single-use JIT registration minted on the host. The registration token never enters the runner container; only the derived JIT config does, through the environment rather than argv. The runner takes one job and exits. | **Live** |
+| Silence detection | A watchdog workflow on a **GitHub-hosted** runner, using the plain `GITHUB_TOKEN`, alerts when the last green nightly is older than 26 hours. The nightly commits a heartbeat on success, which keeps GitHub's 60-day auto-disable from silencing both workflows. | **Live** |
+
+The egress fence is proved rather than asserted. From inside a container on the
+nightly daemon, with the same ports confirmed open from the host:
+
+```
+PASS  blocked 192.168.88.166:22    host SSH
+PASS  blocked 192.168.88.166:8080  a production service on the same box
+PASS  blocked 192.168.88.166:5556  another production service
+PASS  blocked 192.168.88.1:80      LAN router
+PASS  blocked 100.83.110.10:22     the box's Tailscale address
+PASS  reached https://ghcr.io/
+PASS  reached https://pypi.org/simple/
+```
+
+The same probe passes from a container two levels deep — one started by the
+inner dind daemon — which is where the code under test actually runs.
+
+### Accepted residual risk
+
+Stated plainly, because a control table that lists only what works is marketing.
+
+- **The registration credential is account-wide today.** The mint script prefers
+  a fine-grained PAT scoped to the ops repo alone, and falls back to the
+  machine's existing GitHub CLI token when no PAT is present. That fallback is
+  what is running now. A PAT cannot be minted programmatically, so this is a
+  manual step. Both modes produce the same single-use JIT registration; only the
+  blast radius of a compromised machine differs — one repository versus every
+  repository on the account. The live mode is printed on every runner start.
+- **The credential file is user-readable, not root-owned.** Nothing on that
+  machine can create a root-owned file without an interactive password, so
+  anything already running as the CI user can read the token. Scoping the PAT is
+  what bounds this; it does not remove it.
+- **The disk bound samples, it does not enforce.** The design calls for a
+  fixed-size filesystem for the CI data-root, which needs `losetup` and `mount`,
+  which need root that is not available unattended. The watcher samples every
+  two minutes instead, so a fast writer can overshoot between samples. The floor
+  is set well above zero to absorb that, and the post-teardown assertion catches
+  anything the watcher missed.
+- **`pip install` in the nightly is not hash-locked.** Direct dependencies are
+  pinned exactly, but this repository publishes no hash-locked constraints file,
+  so transitive resolution is trusted. Adding one is tracked work, not a
+  control that exists.
+- **The egress fence allows the whole public internet.** It blocks the private
+  network, which is the property that protects the co-tenants. It is not an
+  allowlist, so a compromised dependency can still reach an arbitrary public
+  host.
+- **The machine is shared.** No amount of fencing makes running untrusted-ish
+  workloads next to production workloads as safe as not doing it. The controls
+  above reduce the probability and the blast radius; they do not make the
+  arrangement equivalent to a dedicated box.
+
+---
+
 ## Repository settings log
 
 Applied via `gh api` and verified by reading the setting back. Re-run the
