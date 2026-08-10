@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crypto-processing-api"
-version = "0.1.0"
+version = "0.1.1"
 description = "Single-tenant custodial crypto payment and ledger service on top of BTCPay Server"
 readme = "README.md"
 license = { file = "LICENSE" }

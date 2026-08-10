@@ -4,6 +4,42 @@ Notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-08-10
+
+Three live defects found by an adversarial review of v0.1.0. All three are
+silent: nothing raised, the test suite was green, and the damage showed as an
+error drip in a log, a held balance that never moved, or an alarm that never
+fired. No schema change, no API change.
+
+### Fixed
+
+- **The BTCPay payout submitter and Job B claimed manual-TRON withdrawals.**
+  Both queries filtered on status alone, so a USDT withdrawal was quoted a
+  *Bitcoin* fee, offered to Greenfield — which has no handler for the token —
+  rejected, returned to `approved` by stuck-resolution, and picked up again ten
+  seconds later. Job B separately asked Greenfield about `manual:<uuid>`, which
+  is not a payout id. Both queries now filter on the backend.
+- **`USDT_AUTO_WITHDRAW=true` is refused at startup.** It created withdrawals
+  already in `approved`, and the only code that hands a manual withdrawal to an
+  operator requires `pending_approval` — so the row had no legal next step. The
+  flag never bought anything else: there is no automated TRON signer. Fixing
+  the filter above without this would have turned loud thrashing into a silent
+  stall with the user's balance held.
+- **The hourly invariant job never computed USDT custody.** `build_jobs` called
+  `check_invariants` without the TronGrid gateway, so the parameter defaulted
+  to `None` and `insolvent` short-circuited to `False` for USDT. The insolvency
+  alarm was wired to nothing for that asset on every deployment; only the
+  on-demand admin endpoint was correct.
+
+### Operators
+
+If you ran v0.1.0 with `USDT_AUTO_WITHDRAW=true`, you may hold withdrawals
+stranded in `approved` or `submitting` with a manual backend. They will not
+move on their own. `docs/runbook-usdt-withdrawals.md` has the query to find
+them and the statement to repair them; it touches no ledger row and leaves the
+hold exactly as it is. Set the flag back to `false` before restarting — the
+service now refuses to start with it on.
+
 ## [0.1.0] - 2026-08-10
 
 First release. A complete custodial deposit and withdrawal path for BTC and
@@ -85,4 +121,5 @@ USDT-TRC20 on top of BTCPay Server.
 - Single-tenant. One platform, one store.
 - No external audit.
 
+[0.1.1]: https://github.com/OliverD25/crypto-processing-api/releases/tag/v0.1.1
 [0.1.0]: https://github.com/OliverD25/crypto-processing-api/releases/tag/v0.1.0
