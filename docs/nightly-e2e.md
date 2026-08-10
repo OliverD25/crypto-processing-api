@@ -275,7 +275,9 @@ For this project, in order:
 | Checkout public `main` | Only merged code runs. |
 | `pip install -e ".[dev]"` | The published dependency set resolves today. |
 | `docker compose -f deploy/docker-compose.regtest.yml up -d --build` | bitcoind, NBXplorer, BTCPay, two Postgres and the API come up together. |
+| Wait for `synchronized: true` | See "cold-start ordering" below. |
 | `scripts/bootstrap_btcpay.py` | The store, wallet, API key and webhook can be configured headlessly. |
+| `up -d --force-recreate api worker` | The API picks up the credentials bootstrap just generated. |
 | `scripts/dev/smoke_test.py --drill all` | Drills 1–7: deposit, outage, replay, late payment, withdrawal, approval, crash. Every assertion is a satoshi count. |
 | `HYPOTHESIS_PROFILE=nightly pytest tests/integration` | The wide, randomised property search a pull request cannot afford. |
 | `pip-audit` | New CVEs in the pinned dependency set. |
@@ -286,6 +288,33 @@ For this project, in order:
 The virtualenv is created *outside* the checkout: this repo has no
 `.dockerignore`, so anything inside it is uploaded as build context when the API
 image is built.
+
+### Cold-start ordering
+
+Both of the workflow's first two failures were ordering problems, and both are
+invisible when a person runs the same commands by hand. They are worth naming,
+because any project wiring up a nightly will meet the same shape of bug.
+
+**A service that answers is not a service that is ready.** BTCPay's
+`/api/v1/health` replies while the body still says `{"synchronized": false}` —
+NBXplorer has not caught up with bitcoind. Ask it to generate a wallet in that
+window and it returns 503, "BTC-CHAIN services are not currently available".
+Nobody sees this locally, because a human types the bootstrap command several
+seconds after `up -d`. A cold machine starting seven services at once loses the
+race. Gate on the readiness field, not on the endpoint answering.
+
+**Follow the documented sequence exactly, including the boring step.** The
+repo's README gives four commands, and the third is
+`up -d --force-recreate api worker`. It is there because `bootstrap_btcpay.py`
+writes credentials into `.env.regtest.generated`, and Compose reads `env_file`
+when it *creates* a container — the API started before that file existed. Skip
+it and the API runs with no BTCPay credentials, so the first drill fails with a
+500 that looks like an application bug and is not one.
+
+A useful habit: after a step that changes configuration, wait for the thing that
+consumes it to report healthy, and fail *there* with its logs attached. A
+failure at the step that caused it costs minutes to read. The same failure
+surfacing three steps later, inside a test, costs an evening.
 
 `HYPOTHESIS_PROFILE=nightly` is the same suite CI runs, with `max_examples`
 raised and the derandomisation removed. A pull request must not go red on
