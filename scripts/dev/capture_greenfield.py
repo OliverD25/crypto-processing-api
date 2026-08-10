@@ -95,7 +95,11 @@ class Greenfield:
 def write(name: str, payload: Any) -> None:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     path = FIXTURE_DIR / f"{name}.json"
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # newline="" keeps the LF the repo's .gitattributes expects; write_text on
+    # Windows would translate it to CRLF and make every re-capture look like a
+    # diff until git normalized it away.
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     log(f"wrote {path.relative_to(REPO_ROOT)}")
 
 
