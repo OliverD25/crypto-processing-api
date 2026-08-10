@@ -73,6 +73,7 @@ risks, is in [`docs/security.md`](docs/security.md).
 | [`deployment.md`](docs/deployment.md) | a fresh VPS to a running deployment |
 | [`btcpay-setup.md`](docs/btcpay-setup.md) | what BTCPay needs, including the manual USDt plugin steps |
 | [`security.md`](docs/security.md) | threat model, float policy, cold sweeps |
+| [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | auditors: every control, the file it lives in, the test that proves it |
 | [`backups.md`](docs/backups.md) | continuous archiving and the restore drill |
 | [`runbook-usdt-withdrawals.md`](docs/runbook-usdt-withdrawals.md) | sending USDT by hand |
 | [`runbook-usdt-attribution.md`](docs/runbook-usdt-attribution.md) | pooled-address deposits that need a human |

@@ -10,6 +10,11 @@ seven-dollar-a-month box; it does not have an HSM, a security team, or
 twenty-four-hour monitoring, and pretending otherwise would be the most
 dangerous thing in this document.
 
+> **This file states the claims. [`SECURITY-AUDIT.md`](../SECURITY-AUDIT.md) is
+> the evidence** — for every threat below, the file that implements the control,
+> the tests that prove it, when that was last true, and what is left unmitigated.
+> If you are auditing rather than reading, start there.
+
 ## Hot wallet float policy
 
 **The float is the loss ceiling.** If BTCPay or the host is compromised, the
