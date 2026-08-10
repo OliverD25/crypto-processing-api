@@ -25,6 +25,7 @@ from crypto_processing_api.gateway.btcpay_client import BTCPayGateway, BTCPayNot
 from crypto_processing_api.ledger.models import Deposit, WebhookEvent, Withdrawal
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
+from crypto_processing_api.services.backends import normalize_btcpay_payout
 
 logger = get_logger(__name__)
 
@@ -154,7 +155,9 @@ def _handle_payout_event(session: Session, gateway: BTCPayGateway, event: Webhoo
                 return STATUS_ORPHANED
             return STATUS_IGNORED
 
-    withdrawal_service.apply_payout_state(session, withdrawal_id=withdrawal.id, payout=payout)
+    withdrawal_service.apply_payout_state(
+        session, withdrawal_id=withdrawal.id, payout=normalize_btcpay_payout(payout)
+    )
     return STATUS_PROCESSED
 
 

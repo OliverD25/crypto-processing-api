@@ -52,7 +52,6 @@ from crypto_processing_api.core.addresses import (
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.ids import uuid7
 from crypto_processing_api.core.redaction import get_logger
-from crypto_processing_api.gateway.btcpay_models import Payout
 from crypto_processing_api.ledger import service as ledger
 from crypto_processing_api.ledger.models import (
     Account,
@@ -67,7 +66,11 @@ from crypto_processing_api.ledger.models import (
 )
 from crypto_processing_api.services import events
 from crypto_processing_api.services.backends import BACKEND_MANUAL_TRON as BACKEND_MANUAL_TRON
-from crypto_processing_api.services.backends import ManualTronBackend
+from crypto_processing_api.services.backends import (
+    BackendPayout,
+    BackendPayoutState,
+    ManualTronBackend,
+)
 from crypto_processing_api.services.fees import FeeQuote
 
 logger = get_logger(__name__)
@@ -147,12 +150,20 @@ COUNTS_TOWARD_CAP: frozenset[WithdrawalStatus] = frozenset(
     }
 )
 
-_PAYOUT_STATE_MAP: dict[str, WithdrawalStatus] = {
-    "AwaitingApproval": WithdrawalStatus.SUBMITTED,
-    "AwaitingPayment": WithdrawalStatus.SUBMITTED,
-    "InProgress": WithdrawalStatus.BROADCAST,
-    "Completed": WithdrawalStatus.CONFIRMED,
-    "Cancelled": WithdrawalStatus.FAILED,
+#: Canonical backend states, not BTCPay's spelling. The translation happens in
+#: `backends.normalize_btcpay_payout`, which is the only place that knows what
+#: Greenfield calls things.
+#:
+#: `UNKNOWN` is deliberately absent. `.get()` then returns None and the caller
+#: leaves the row alone and logs — the safe answer to a payout state this
+#: version does not understand, and the reason this is a lookup rather than a
+#: match statement with an else branch.
+_PAYOUT_STATE_MAP: dict[BackendPayoutState, WithdrawalStatus] = {
+    BackendPayoutState.AWAITING_APPROVAL: WithdrawalStatus.SUBMITTED,
+    BackendPayoutState.PENDING: WithdrawalStatus.SUBMITTED,
+    BackendPayoutState.IN_FLIGHT: WithdrawalStatus.BROADCAST,
+    BackendPayoutState.COMPLETED: WithdrawalStatus.CONFIRMED,
+    BackendPayoutState.CANCELLED: WithdrawalStatus.FAILED,
 }
 
 
@@ -622,7 +633,7 @@ def apply_payout_state(
     session: Session,
     *,
     withdrawal_id: uuid.UUID,
-    payout: Payout,
+    payout: BackendPayout,
     actor: str = AUTO_ACTOR,
 ) -> Withdrawal:
     """Bring a withdrawal in line with BTCPay's view of its payout.
@@ -654,7 +665,10 @@ def apply_payout_state(
 
     target = _PAYOUT_STATE_MAP.get(payout.state)
     if target is None:
-        logger.warning("withdrawal.unknown_payout_state", state=payout.state)
+        # `raw_state` rather than `state`: "unknown" in the log tells an
+        # operator nothing, and the string the backend actually sent is the
+        # only thing that says which version grew which state.
+        logger.warning("withdrawal.unknown_payout_state", state=payout.raw_state or payout.state)
         return withdrawal
 
     if target == WithdrawalStatus.CONFIRMED and withdrawal.settle_entry_id is None:
@@ -1068,7 +1082,7 @@ def poll_manual(
         session.flush()
         return withdrawal
 
-    confirmations = backend.verifier.confirmations(verification.block_number)
+    confirmations = backend.confirmations(verification.block_number)
     if confirmations < required_confirmations:
         logger.info(
             "withdrawal.awaiting_confirmations",

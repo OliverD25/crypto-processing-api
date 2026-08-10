@@ -120,6 +120,8 @@ class Webhook(TransportModel):
     secret: str | None = None
 
 
+#: The payout states BTCPay 2.4.2 is known to emit. Documentation and test
+#: data, deliberately NOT the type of `Payout.state` — see the note there.
 PayoutState = Literal["AwaitingApproval", "AwaitingPayment", "InProgress", "Completed", "Cancelled"]
 
 
@@ -193,7 +195,21 @@ class Payout(TransportModel):
     payout_amount: str | None = Field(default=None, alias="payoutAmount")
     payout_currency: str | None = Field(default=None, alias="payoutCurrency")
     payout_method_id: str | None = Field(default=None, alias="payoutMethodId")
-    state: PayoutState
+    #: `str`, not `PayoutState`, and the difference is load-bearing.
+    #:
+    #: A Literal here means pydantic rejects any state this version has not
+    #: heard of, and it rejects it during parsing — before the normalizer, the
+    #: status map, or the "unknown state is a logged no-op" path can run. The
+    #: resulting ValidationError is neither BTCPayError nor WithdrawalError, so
+    #: Job B's sweep does not skip that row: it raises through the whole batch
+    #: and every other withdrawal stops being polled too.
+    #:
+    #: A state we do not recognise is news, not a crash. It becomes
+    #: BackendPayoutState.UNKNOWN in `normalize_btcpay_payout`, which has no
+    #: entry in the status map, which leaves the row untouched and logs what
+    #: BTCPay actually said. Strict validation is right for fields we send and
+    #: wrong for an enum the server owns.
+    state: str
     payment_proof: PayoutPaymentProof | None = Field(default=None, alias="paymentProof")
     metadata: dict[str, Any] = Field(default_factory=dict)
 

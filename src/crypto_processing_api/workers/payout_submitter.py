@@ -26,13 +26,9 @@ from crypto_processing_api.config import Settings
 from crypto_processing_api.core.amounts import to_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
-from crypto_processing_api.gateway.btcpay_models import Payout
 from crypto_processing_api.ledger.models import Withdrawal, WithdrawalStatus
 from crypto_processing_api.services import fees, withdrawals
-from crypto_processing_api.services.backends import (
-    BtcpayPayoutBackend,
-    find_payout_for_withdrawal,
-)
+from crypto_processing_api.services.backends import BackendPayout, BtcpayPayoutBackend
 
 logger = get_logger(__name__)
 
@@ -172,8 +168,9 @@ def resolve_stuck(
         with session_factory() as session:
             withdrawal = withdrawals.get(session, withdrawal_id)
             asset = withdrawals.get_asset(session, withdrawal.asset_id, require_enabled=False)
+            backend = BtcpayPayoutBackend(gateway, payout_method_id=asset.btcpay_payment_method)
             try:
-                mine, unclaimed = find_payout_for_withdrawal(gateway, withdrawal)
+                mine, unclaimed = backend.find_for_withdrawal(withdrawal)
             except BTCPayError as exc:
                 logger.warning(
                     "stuck.lookup_failed", withdrawal_id=str(withdrawal_id), error=str(exc)
@@ -219,13 +216,15 @@ def resolve_stuck(
     return report
 
 
-def _quote_from_payout(payout: Payout, withdrawal: Withdrawal, decimals: int) -> fees.FeeQuote:
+def _quote_from_payout(
+    payout: BackendPayout, withdrawal: Withdrawal, decimals: int
+) -> fees.FeeQuote:
     """Rebuild the amounts from what BTCPay actually accepted.
 
     The payout is the fact. Re-estimating here would book a fee the user was
     never charged.
     """
-    amount = payout.payout_amount or payout.original_amount
+    amount = payout.amount
     net = to_units(str(amount), decimals) if amount else withdrawal.amount_gross
     fee = max(withdrawal.amount_gross - net, 0)
     return fees.FeeQuote(

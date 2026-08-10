@@ -1,20 +1,32 @@
 """Per-asset withdrawal backends.
 
 BTC goes through BTCPay payouts. USDT cannot: the USDt plugin has no payout
-handler of any kind, so M4 adds a manual backend behind this same protocol
-rather than pretending BTCPay can send it.
+handler of any kind, so M4 adds a manual backend rather than pretending BTCPay
+can send it.
 
-The protocol is deliberately small — create, ask, cancel — because everything
-that decides *whether* to send lives in `services/withdrawals.py`, and a
-backend that could decide things would be a second place to look when money
-goes missing.
+Two protocols, because there are honestly two kinds of backend and pretending
+otherwise cost us a type check. `ManualTronBackend` never implemented the old
+single `WithdrawalBackend` — it has `new_reference`/`verify_broadcast`, not
+`initiate`/`poll_status`/`cancel` — and because nothing ever annotated it,
+mypy never once looked at the discrepancy.
+
+Both protocols are deliberately small, and neither can decide anything.
+Whether to send lives in `services/withdrawals.py`; a backend that could decide
+would be a second place to look when money goes missing.
+
+`find_for_withdrawal` is part of the automated protocol rather than a helper
+beside it. Crash recovery is not a BTCPay convenience — any backend that can
+create a payout can crash after creating one, and a backend with no answer to
+"did I already send this?" cannot safely be retried.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Protocol
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Protocol
 
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.redaction import get_logger
@@ -29,14 +41,100 @@ CPAPI_VERSION = 1
 BACKEND_MANUAL_TRON = "manual_tron"
 
 
-class WithdrawalBackend(Protocol):
+class BackendPayoutState(StrEnum):
+    """What a payout is doing, in terms no payment rail owns.
+
+    The withdrawal state machine keys on these, not on BTCPay's spelling. That
+    matters the day a second automated backend exists: `"InProgress"` is a
+    Greenfield word, and a Lightning or TRON signer would have had to either
+    adopt BTCPay's vocabulary or teach the state machine a second one.
+    """
+
+    AWAITING_APPROVAL = "awaiting_approval"
+    PENDING = "pending"
+    IN_FLIGHT = "in_flight"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    #: A state this version does not recognise. Deliberately has no entry in the
+    #: status map, so an unrecognised payout is a logged no-op rather than a
+    #: guess about money. A backend that grows a state must be taught here.
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class BackendPayout:
+    """A payout as the money path sees it, whatever created it."""
+
+    id: str
+    state: BackendPayoutState
+    destination: str
+    #: Decimal string in display units, as the backend reported it. Kept as the
+    #: backend's own text because it is the fact being adopted; converting early
+    #: would lose the distinction between "not reported" and "zero".
+    amount: str | None = None
+    txid: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    #: Exactly what the backend called this state. Only used for logs, and only
+    #: interesting when `state` is UNKNOWN — where it is the whole message.
+    raw_state: str = ""
+
+
+#: BTCPay 2.4.2's five payout states. Verified against captured Greenfield
+#: responses in tests/fixtures/greenfield/, not against the documentation.
+_BTCPAY_STATES: dict[str, BackendPayoutState] = {
+    "AwaitingApproval": BackendPayoutState.AWAITING_APPROVAL,
+    "AwaitingPayment": BackendPayoutState.PENDING,
+    "InProgress": BackendPayoutState.IN_FLIGHT,
+    "Completed": BackendPayoutState.COMPLETED,
+    "Cancelled": BackendPayoutState.CANCELLED,
+}
+
+
+def normalize_btcpay_payout(payout: Payout) -> BackendPayout:
+    """Translate one Greenfield payout into the canonical shape.
+
+    An unrecognised state becomes UNKNOWN rather than raising. A new BTCPay
+    release inventing a state must not take the withdrawal poller down — the
+    safe response to not understanding a payout is to leave the row alone and
+    say so.
+    """
+    return BackendPayout(
+        id=payout.id,
+        state=_BTCPAY_STATES.get(payout.state, BackendPayoutState.UNKNOWN),
+        destination=payout.destination,
+        amount=payout.payout_amount or payout.original_amount,
+        txid=payout.txid,
+        metadata=payout.metadata,
+        raw_state=payout.state,
+    )
+
+
+class AutomatedWithdrawalBackend(Protocol):
+    """A backend that can send money by itself."""
+
     name: str
 
-    def initiate(self, withdrawal: Withdrawal, *, net: int, decimals: int) -> Payout: ...
+    def initiate(self, withdrawal: Withdrawal, *, net: int, decimals: int) -> BackendPayout: ...
 
-    def poll_status(self, backend_ref: str) -> Payout: ...
+    def poll_status(self, backend_ref: str) -> BackendPayout: ...
 
     def cancel(self, backend_ref: str) -> bool: ...
+
+    def find_for_withdrawal(
+        self, withdrawal: Withdrawal
+    ) -> tuple[BackendPayout | None, list[BackendPayout]]: ...
+
+
+class OperatorWithdrawalBackend(Protocol):
+    """A backend where a human sends the money and reports back."""
+
+    name: str
+
+    def new_reference(self) -> str: ...
+
+    def verify_broadcast(self, withdrawal: Withdrawal, txid: str) -> TronVerification: ...
+
+    def confirmations(self, block_number: int | None) -> int: ...
 
 
 def payout_metadata(withdrawal: Withdrawal) -> dict[str, object]:
@@ -69,50 +167,52 @@ class BtcpayPayoutBackend:
         self.gateway = gateway
         self.payout_method_id = payout_method_id
 
-    def initiate(self, withdrawal: Withdrawal, *, net: int, decimals: int) -> Payout:
-        return self.gateway.create_payout(
-            destination=withdrawal.destination_address,
-            amount=from_units(net, decimals),
-            payout_method_id=self.payout_method_id,
-            metadata=payout_metadata(withdrawal),
+    def initiate(self, withdrawal: Withdrawal, *, net: int, decimals: int) -> BackendPayout:
+        return normalize_btcpay_payout(
+            self.gateway.create_payout(
+                destination=withdrawal.destination_address,
+                amount=from_units(net, decimals),
+                payout_method_id=self.payout_method_id,
+                metadata=payout_metadata(withdrawal),
+            )
         )
 
-    def poll_status(self, backend_ref: str) -> Payout:
-        return self.gateway.get_payout(backend_ref)
+    def poll_status(self, backend_ref: str) -> BackendPayout:
+        return normalize_btcpay_payout(self.gateway.get_payout(backend_ref))
 
     def cancel(self, backend_ref: str) -> bool:
         return self.gateway.cancel_payout(backend_ref)
 
+    def find_for_withdrawal(
+        self, withdrawal: Withdrawal
+    ) -> tuple[BackendPayout | None, list[BackendPayout]]:
+        """Resolve a submission whose outcome was never recorded.
 
-def find_payout_for_withdrawal(
-    gateway: BTCPayGateway, withdrawal: Withdrawal
-) -> tuple[Payout | None, list[Payout]]:
-    """Resolve a submission whose outcome was never recorded.
+        Returns the payout that carries this withdrawal's id, plus every
+        *other* payout that matches the same destination with no withdrawal id
+        we can read.
 
-    Returns the payout that carries this withdrawal's id, plus every *other*
-    payout that matches the same destination with no withdrawal id we can
-    read.
+        The second half is the safety rule from the adversarial review: before
+        a stuck row may be submitted again, there must be zero unclaimed
+        payouts to this destination. "No match for this row" is not enough —
+        with two withdrawals to one address, binding the wrong payout to the
+        wrong row clears the other for resubmission and sends the money twice.
+        """
+        mine: BackendPayout | None = None
+        unclaimed: list[BackendPayout] = []
 
-    The second half is the safety rule from the adversarial review: before a
-    stuck row may be submitted again, there must be zero unclaimed payouts to
-    this destination. "No match for this row" is not enough — with two
-    withdrawals to one address, binding the wrong payout to the wrong row
-    clears the other for resubmission and sends the money twice.
-    """
-    mine: Payout | None = None
-    unclaimed: list[Payout] = []
+        for raw in self.gateway.list_payouts():
+            payout = normalize_btcpay_payout(raw)
+            if payout.state is BackendPayoutState.CANCELLED:
+                continue
+            echoed = payout.metadata.get("withdrawal_id")
+            if echoed is not None and str(echoed) == str(withdrawal.id):
+                mine = payout
+                continue
+            if echoed is None and payout.destination == withdrawal.destination_address:
+                unclaimed.append(payout)
 
-    for payout in gateway.list_payouts():
-        if payout.state == "Cancelled":
-            continue
-        echoed = payout.metadata.get("withdrawal_id")
-        if echoed is not None and str(echoed) == str(withdrawal.id):
-            mine = payout
-            continue
-        if echoed is None and payout.destination == withdrawal.destination_address:
-            unclaimed.append(payout)
-
-    return mine, unclaimed
+        return mine, unclaimed
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,3 +349,24 @@ class ManualTronBackend:
             destination=withdrawal.destination_address,
             amount_net=withdrawal.amount_net,
         )
+
+    def confirmations(self, block_number: int | None) -> int:
+        """On the protocol, not reached through `.verifier`.
+
+        The caller in `services/withdrawals.py` used to do exactly that, which
+        is how the money path ended up depending on this backend's private
+        composition rather than on anything it promised.
+        """
+        return self.verifier.confirmations(block_number)
+
+
+def _assert_protocols() -> None:
+    """Make mypy check what nothing checked before.
+
+    `ManualTronBackend` never satisfied the old single protocol, and no
+    annotation ever forced the question. These two lines are the whole point of
+    splitting it: they are checked at type-check time and cost nothing at
+    runtime.
+    """
+    _automated: type[AutomatedWithdrawalBackend] = BtcpayPayoutBackend
+    _operator: type[OperatorWithdrawalBackend] = ManualTronBackend

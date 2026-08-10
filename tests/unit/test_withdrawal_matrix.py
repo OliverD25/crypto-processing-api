@@ -12,6 +12,7 @@ import pytest
 
 from crypto_processing_api.ledger.models import WithdrawalStatus
 from crypto_processing_api.services import withdrawals
+from crypto_processing_api.services.backends import BackendPayoutState
 
 ALL = list(WithdrawalStatus)
 
@@ -145,18 +146,41 @@ def test_everything_in_flight_counts_against_the_cap() -> None:
 @pytest.mark.parametrize(
     ("payout_state", "expected"),
     [
-        ("AwaitingApproval", WithdrawalStatus.SUBMITTED),
-        ("AwaitingPayment", WithdrawalStatus.SUBMITTED),
-        ("InProgress", WithdrawalStatus.BROADCAST),
-        ("Completed", WithdrawalStatus.CONFIRMED),
-        ("Cancelled", WithdrawalStatus.FAILED),
+        (BackendPayoutState.AWAITING_APPROVAL, WithdrawalStatus.SUBMITTED),
+        (BackendPayoutState.PENDING, WithdrawalStatus.SUBMITTED),
+        (BackendPayoutState.IN_FLIGHT, WithdrawalStatus.BROADCAST),
+        (BackendPayoutState.COMPLETED, WithdrawalStatus.CONFIRMED),
+        (BackendPayoutState.CANCELLED, WithdrawalStatus.FAILED),
     ],
 )
-def test_payout_states_map_as_documented(payout_state: str, expected: WithdrawalStatus) -> None:
+def test_payout_states_map_as_documented(
+    payout_state: BackendPayoutState, expected: WithdrawalStatus
+) -> None:
     assert withdrawals._PAYOUT_STATE_MAP[payout_state] == expected
 
 
 def test_a_cancelled_payout_does_not_map_to_refunded() -> None:
     """Cancelled means stop, not "give the money back" — that needs a human."""
-    assert withdrawals._PAYOUT_STATE_MAP["Cancelled"] == WithdrawalStatus.FAILED
+    assert withdrawals._PAYOUT_STATE_MAP[BackendPayoutState.CANCELLED] == WithdrawalStatus.FAILED
     assert WithdrawalStatus.REFUNDED not in withdrawals._PAYOUT_STATE_MAP.values()
+
+
+def test_an_unknown_state_has_no_mapping() -> None:
+    """The load-bearing gap.
+
+    `apply_payout_state` does `.get()` and returns the row untouched when the
+    lookup misses. That is the only safe response to a payout state this
+    version has never heard of, and it stops being safe the moment somebody
+    "completes" this table with an UNKNOWN entry.
+    """
+    assert BackendPayoutState.UNKNOWN not in withdrawals._PAYOUT_STATE_MAP
+
+
+def test_every_canonical_state_except_unknown_is_mapped() -> None:
+    """The other half: a new canonical state must not be silently ignored."""
+    unmapped = {
+        state
+        for state in BackendPayoutState
+        if state is not BackendPayoutState.UNKNOWN and state not in withdrawals._PAYOUT_STATE_MAP
+    }
+    assert not unmapped, f"canonical states with no withdrawal status: {sorted(unmapped)}"

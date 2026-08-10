@@ -25,6 +25,7 @@ from crypto_processing_api.ledger.models import (
 )
 from crypto_processing_api.services import events as event_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
+from crypto_processing_api.services.backends import normalize_btcpay_payout
 from crypto_processing_api.workers import payout_submitter, reconciliation, webhook_processor
 from tests.fakes import FakeBTCPay, regtest_address
 from tests.integration.conftest import BTC, bearer, credit_user, post_webhook
@@ -379,7 +380,9 @@ def test_an_out_of_order_event_is_a_no_op(
     fake_btcpay.payouts[payout_id].state = "InProgress"
     with session_factory() as worker:
         withdrawal_service.apply_payout_state(
-            worker, withdrawal_id=withdrawal_id, payout=fake_btcpay.get_payout(payout_id)
+            worker,
+            withdrawal_id=withdrawal_id,
+            payout=normalize_btcpay_payout(fake_btcpay.get_payout(payout_id)),
         )
         worker.commit()
 
@@ -616,3 +619,53 @@ def test_events_are_emitted_with_the_ledger_changes(
     assert event_service.WITHDRAWAL_PENDING_APPROVAL in types
     assert event_service.WITHDRAWAL_BROADCAST in types
     assert event_service.WITHDRAWAL_COMPLETED in types
+
+
+def test_a_payout_state_this_version_never_heard_of_is_survivable(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """A future BTCPay state must not take the whole sweep down.
+
+    This behaviour was documented and unreachable. `Payout.state` was a pydantic
+    Literal, so an unrecognised state was rejected during parsing — before the
+    status map could decline to act on it. The resulting ValidationError is
+    neither BTCPayError nor WithdrawalError, so Job B did not skip the row: it
+    raised through the batch and stopped polling every other withdrawal too.
+
+    Two rows here on purpose. One withdrawal proves the unknown state is
+    ignored; the second proves the batch containing it still made progress.
+    """
+    credit_user(session, user="future", amount=FUNDED)
+    odd_id = make_withdrawal(client, readwrite_key, user="future")
+    submit(session_factory, fake_btcpay)
+    odd_payout = withdrawal_service.get(session, odd_id).backend_ref
+    assert odd_payout
+
+    normal_id = make_withdrawal(client, readwrite_key, user="future")
+    submit(session_factory, fake_btcpay)
+    normal_payout = withdrawal_service.get(session, normal_id).backend_ref
+    assert normal_payout
+
+    fake_btcpay.payouts[odd_payout].state = "SettledOnSomeFutureRail"
+    fake_btcpay.complete_payout(normal_payout)
+
+    report = reconciliation.sweep_withdrawals(session_factory, fake_btcpay, get_settings())
+
+    session.rollback()
+    odd = withdrawal_service.get(session, odd_id)
+    session.refresh(odd)
+    assert odd.status == WithdrawalStatus.SUBMITTED, (
+        "an unrecognised payout state must leave the row exactly where it was"
+    )
+
+    normal = withdrawal_service.get(session, normal_id)
+    session.refresh(normal)
+    assert normal.status == WithdrawalStatus.CONFIRMED, (
+        "the unknown state stopped the rest of the batch from being polled"
+    )
+    assert report.errors == 0, "an unknown state is news, not an error"
+    assert_ledger_consistent(session)
