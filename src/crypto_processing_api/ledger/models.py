@@ -142,10 +142,26 @@ class Asset(Base):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
 
+    #: Deposit addresses come from a shared pool rather than being derived per
+    #: invoice. Attribution is then heuristic, which is what makes the amount
+    #: tolerance and the review queue necessary rather than fussy.
+    pooled_addresses: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    #: Currency the BTCPay invoice is denominated in. NULL means "use the asset
+    #: id", which is what the dict this replaced did for anything unlisted.
+    invoice_currency: Mapped[str | None] = mapped_column(Text)
+    #: NULL means the global default from settings.
+    deposit_expiry_minutes: Mapped[int | None] = mapped_column(Integer)
+
     __table_args__ = (
         # An 18-decimal asset would overflow BIGINT above ~9.2e9 tokens. Adding
         # one has to be a deliberate migration, not a config row.
         CheckConstraint("decimals BETWEEN 0 AND 8", name="assets_decimals_range"),
+        CheckConstraint(
+            "deposit_expiry_minutes IS NULL OR deposit_expiry_minutes > 0",
+            name="assets_expiry_positive",
+        ),
     )
 
 

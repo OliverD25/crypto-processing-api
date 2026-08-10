@@ -24,6 +24,7 @@ from crypto_processing_api.ledger.invariants import assert_ledger_consistent, cu
 from crypto_processing_api.ledger.models import (
     Account,
     AccountKind,
+    Asset,
     Deposit,
     JournalEntry,
     Withdrawal,
@@ -171,6 +172,42 @@ def test_a_frozen_database_upgrades_to_head(fixture: Path, scratch_database: Ses
     assert WithdrawalStatus.PENDING_APPROVAL in statuses
     backends = {row.backend for row in session.execute(select(Withdrawal)).scalars()}
     assert "manual_tron" in backends, "the manual-TRON withdrawal vanished"
+
+
+@pytest.mark.parametrize("fixture", fixtures(), ids=lambda path: path.stem)
+def test_the_extension_columns_reproduce_the_old_hardcoded_behaviour(
+    fixture: Path, scratch_database: Session
+) -> None:
+    """0006 moved three per-asset facts out of Python dicts and into columns.
+
+    A column with the wrong value is worse than the dict was, because it looks
+    configured. So this pins the exact values the deleted code produced:
+    POOLED_ASSETS = {"USDT_TRC20"}, INVOICE_CURRENCY = {BTC: BTC, USDT: USDT},
+    and `_expiry_minutes` reading settings rather than the row for both — which
+    is why NULL here is correct and a number would be a regression.
+    """
+    session = scratch_database
+    load_fixture(session, fixture)
+    command.upgrade(make_alembic_config(_upgrade_url()), "head")
+    session.close()
+
+    assets = {row.id: row for row in session.execute(select(Asset)).scalars()}
+    assert set(assets) >= {"BTC", "USDT_TRC20"}, "an asset row was lost in the upgrade"
+
+    assert assets["USDT_TRC20"].pooled_addresses is True, (
+        "USDT was the only member of POOLED_ASSETS; losing that flag turns off "
+        "the amount tolerance and auto-credits pooled deposits that need a human"
+    )
+    assert assets["BTC"].pooled_addresses is False
+
+    assert assets["BTC"].invoice_currency == "BTC"
+    assert assets["USDT_TRC20"].invoice_currency == "USDT"
+
+    for asset_id, asset in assets.items():
+        assert asset.deposit_expiry_minutes is None, (
+            f"{asset_id} got a hardcoded expiry; the value belongs in settings, and "
+            "writing today's number into a row freezes it there forever"
+        )
 
 
 @pytest.mark.parametrize("fixture", fixtures(), ids=lambda path: path.stem)

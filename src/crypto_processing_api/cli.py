@@ -46,6 +46,7 @@ def asset_specs(settings: Settings) -> list[AssetSpec]:
             withdrawal_user_daily_cap=settings.seed_btc_withdrawal_user_daily_cap,
             withdrawal_min=settings.seed_btc_withdrawal_min,
             withdrawal_flat_fee=settings.seed_btc_withdrawal_flat_fee,
+            invoice_currency="BTC",
         ),
         AssetSpec(
             id="USDT_TRC20",
@@ -58,6 +59,10 @@ def asset_specs(settings: Settings) -> list[AssetSpec]:
             withdrawal_user_daily_cap=settings.seed_usdt_withdrawal_user_daily_cap,
             withdrawal_min=settings.seed_usdt_withdrawal_min,
             withdrawal_flat_fee=settings.seed_usdt_withdrawal_flat_fee,
+            # Addresses come from the USDt plugin's shared pool, which is what
+            # makes attribution heuristic and the review queue load-bearing.
+            pooled_addresses=True,
+            invoice_currency="USDT",
         ),
     ]
 

@@ -95,6 +95,10 @@ class AssetSpec:
     withdrawal_user_daily_cap: int | None
     withdrawal_min: int
     withdrawal_flat_fee: int
+    pooled_addresses: bool = False
+    invoice_currency: str | None = None
+    #: None means the global default from settings.
+    deposit_expiry_minutes: int | None = None
 
 
 SYSTEM_ACCOUNT_KINDS: tuple[AccountKind, ...] = (
@@ -374,6 +378,9 @@ def seed_assets(session: Session, specs: Sequence[AssetSpec]) -> list[str]:
                 withdrawal_user_daily_cap=spec.withdrawal_user_daily_cap,
                 withdrawal_min=spec.withdrawal_min,
                 withdrawal_flat_fee=spec.withdrawal_flat_fee,
+                pooled_addresses=spec.pooled_addresses,
+                invoice_currency=spec.invoice_currency,
+                deposit_expiry_minutes=spec.deposit_expiry_minutes,
             )
             .on_conflict_do_nothing(index_elements=["id"])
             .returning(Asset.id)
