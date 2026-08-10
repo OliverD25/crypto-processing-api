@@ -185,6 +185,92 @@ def run_checks() -> list[Check]:
             ),
         )
     )
+    # Note the parameter name: the on-chain processor's last segment is
+    # `{paymentMethodId}` and the Lightning one's is `{payoutMethodId}`. Same
+    # position, same value, two spellings in BTCPay's own swagger. Harmless,
+    # and exactly the kind of detail this script exists to pin down.
+    checks.append(
+        Check(
+            "lightning payout processor config",
+            has_path(
+                processors,
+                "/api/v1/stores/{storeId}/payout-processors/"
+                "LightningAutomatedPayoutSenderFactory/{payoutMethodId}",
+                "put",
+            ),
+        )
+    )
+
+    checks.extend(lightning_checks())
+    return checks
+
+
+def lightning_checks() -> list[Check]:
+    """The BTC_LN reads, and the one thing about them that is easy to get wrong.
+
+    Both Lightning amounts are **millisatoshi**, unlike every other amount in
+    this API, and both arrive as strings. If a future release changes either
+    unit or drops the `feeAmount` field, nothing crashes: routing fees quietly
+    stop being booked, or get booked a thousand times too large, and the first
+    symptom is a custody drift nobody can explain. So the descriptions are
+    asserted, not just the field names.
+    """
+    checks: list[Check] = []
+
+    store = fetch("lightning.store")
+    for route in ("balance", "payments/{paymentHash}"):
+        path = f"/api/v1/stores/{{storeId}}/lightning/{{cryptoCode}}/{route}"
+        checks.append(Check(f"lightning route {route}", has_path(store, path, "get")))
+    # Keyed by chain, not by payment method: `/lightning/BTC/...`, never
+    # `/lightning/BTC-LN/...`. `crypto_code_of` exists for this.
+    checks.append(
+        Check(
+            "lightning routes are keyed by cryptoCode",
+            "{cryptoCode}" in "".join(store.get("paths", {})),
+        )
+    )
+
+    common = fetch("lightning.common")
+    payment = properties(common, schema(common, "LightningPaymentData"))
+    for field in ("status", "paymentHash", "totalAmount", "feeAmount"):
+        checks.append(Check(f"LightningPaymentData.{field}", field in payment))
+    checks.append(
+        Check(
+            "LightningPaymentData.feeAmount is still millisatoshi",
+            "millisatoshi" in str(payment.get("feeAmount", {}).get("description", "")),
+            "the fee is converted with msat_to_sat_round_up; a unit change here books "
+            "routing fees a thousand times wrong in either direction",
+        )
+    )
+
+    offchain = properties(common, schema(common, "OffchainBalanceData"))
+    checks.append(Check("OffchainBalanceData.local", "local" in offchain))
+    checks.append(
+        Check(
+            "OffchainBalanceData.local is still millisatoshi",
+            "millisatoshi" in str(offchain.get("local", {}).get("description", "")),
+            "LightningNodeCustody divides by 1000; a unit change makes Job C compare "
+            "the ledger against a number a thousand times off",
+        )
+    )
+
+    status = schema(common, "LightningPaymentStatus")
+    checks.append(
+        Check(
+            "LightningPaymentStatus still has Failed",
+            "Failed" in (status.get("enum") or []),
+            "the definitive-failure proof allow-lists it; losing it would silently stop "
+            "every automatic release and send them all to an admin",
+        )
+    )
+    checks.append(
+        Check(
+            "LightningPaymentStatus has grown no new terminal state",
+            set(status.get("enum") or []) == {"Unknown", "Pending", "Complete", "Failed"},
+            "a new status is not automatically safe to release on — read it before "
+            "adding it to LIGHTNING_DEFINITELY_UNPAID",
+        )
+    )
 
     return checks
 
