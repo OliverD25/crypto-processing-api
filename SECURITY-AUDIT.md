@@ -335,7 +335,7 @@ damage to the co-hosted workloads.
 | Resource fences | dind `cpus: 3`, `mem_limit: 8g`, `pids_limit: 2048`; runner `cpus: 1`, `mem_limit: 1g`, `pids_limit: 1024`. Enforced through cgroup delegation to the user slice. | **Live** — read back from `docker inspect` |
 | Private-network egress fence | RFC1918, link-local and CGNAT ranges are rejected for all nightly containers. Rules live inside RootlessKit's own network namespace, so the host firewall is untouched. | **Live** — re-proved as the nightly's second step |
 | Disk bound | A timer stops the stack if free space falls below a floor or the CI data-root grows past a cap; the nightly separately asserts free space after teardown and fails if it is short. | **Live, with a gap — see below** |
-| No long-lived runner credential | Each job gets a single-use JIT registration minted on the host. The registration token never enters the runner container; only the derived JIT config does, through the environment rather than argv. The runner takes one job and exits. | **Live** |
+| No long-lived runner credential | Each job gets a single-use JIT registration minted on the host. The registration token never enters the runner container at all; only the derived JIT config does. The runner takes one job and exits. | **Live** |
 | Silence detection | A watchdog workflow on a **GitHub-hosted** runner, using the plain `GITHUB_TOKEN`, alerts when the last green nightly is older than 26 hours. The nightly commits a heartbeat on success, which keeps GitHub's 60-day auto-disable from silencing both workflows. | **Live** |
 
 The egress fence is proved rather than asserted. From inside a container on the
@@ -369,6 +369,14 @@ Stated plainly, because a control table that lists only what works is marketing.
   machine can create a root-owned file without an interactive password, so
   anything already running as the CI user can read the token. Scoping the PAT is
   what bounds this; it does not remove it.
+- **The JIT config is visible in the runner container's process list.** It is
+  handed to the container through the environment specifically to keep it out of
+  any command line, but the runner's own `run.sh` then passes it to
+  `Runner.Listener` as `--jitconfig <value>`, so `ps` inside that container shows
+  it. This is upstream behaviour, not something the wrapper can avoid. What it
+  costs is bounded: the value registers one ephemeral runner, is consumed by one
+  job, and dies with the container. The *registration token* that could mint more
+  of them is the thing that never enters the container, and that property holds.
 - **The disk bound samples, it does not enforce.** The design calls for a
   fixed-size filesystem for the CI data-root, which needs `losetup` and `mount`,
   which need root that is not available unattended. The watcher samples every

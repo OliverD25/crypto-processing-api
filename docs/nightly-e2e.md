@@ -225,8 +225,12 @@ The runner takes exactly one job and exits; a supervisor restarts the script and
 the next job gets a fresh registration. Two properties are worth stating:
 
 - **The registration token never enters the runner container.** Only the derived
-  JIT config does — pass it through the environment rather than argv, because
-  `/proc/<pid>/cmdline` is world-readable.
+  JIT config does. Pass that through the environment rather than a command line
+  argument, because `/proc/<pid>/cmdline` is world-readable — though note the
+  runner's own `run.sh` then passes it to `Runner.Listener` as
+  `--jitconfig <value>`, so it *is* visible in `ps` inside the container. You
+  cannot avoid that; you can only make sure the value exposed there is the
+  single-use one and not the token that mints it.
 - **The token should be a fine-grained PAT scoped to the ops repo alone**, with
   `Administration: read and write` and nothing else. A classic token or a CLI
   token usually works, and is usually account-wide — which means a compromised
