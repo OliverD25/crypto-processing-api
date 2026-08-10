@@ -383,6 +383,12 @@ Stated plainly, because a control table that lists only what works is marketing.
   network, which is the property that protects the co-tenants. It is not an
   allowlist, so a compromised dependency can still reach an arbitrary public
   host.
+- **CPU and memory are fenced; disk IO is not.** The host delegates only the
+  `cpu`, `memory` and `pids` cgroup controllers to the user slice, so `cpus` and
+  `mem_limit` are enforced but there is no `io` controller to set a weight on.
+  Booting the stack is IO-heavy, and the machine's load average roughly doubles
+  while a run is in flight even though the run never exceeds its 3-CPU share.
+  The mitigation is scheduling, not fencing: the nightly runs at 03:17 local.
 - **The machine is shared.** No amount of fencing makes running untrusted-ish
   workloads next to production workloads as safe as not doing it. The controls
   above reduce the probability and the blast radius; they do not make the
