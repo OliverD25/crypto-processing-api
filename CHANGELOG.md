@@ -4,6 +4,60 @@ Notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Lightning as a new asset, `BTC_LN`, off by default.** One `assets` row and
+  one registry entry, added through the extension contract without changing it.
+  `LightningPayoutBackend` inherits every method the money path uses from
+  `BtcpayPayoutBackend` and passes the published conformance suite unmodified,
+  which is the acceptance test the contract was written for. Deposits are
+  instant, withdrawals go to a BOLT11 invoice, custody is outbound channel
+  liquidity.
+- **Fee-drift journalling.** The settle entry now books what the rail actually
+  charged rather than what was estimated, with the difference landing on
+  `hot_wallet`. When the two agree the extra posting is zero and omitted, so
+  on-chain BTC produces the same entries as before. Lightning routing fees are
+  read from the node and rounded **up** to whole satoshis.
+- **A deadline for payouts that will never complete.** BTCPay's Lightning
+  processor retries an unroutable payout for as long as the invoice lives and
+  never marks it failed, so `LN_PAYOUT_TIMEOUT_SECONDS` cancels it. Where the
+  node can prove the payment never left, the hold is released automatically
+  with that proof recorded as the attestation; where it cannot, the hold waits
+  for an admin exactly as before and an alert says so.
+- Two optional backend capabilities (`ReportsActualFee`,
+  `ProvesDefinitiveFailure`) and two optional profile hooks
+  (`submission_guard`, `submitted_timeout_seconds`). All four are additive; a
+  backend that implements none behaves exactly as it did.
+- Drills 8–11 on the regtest stack, behind a Lightning compose overlay with
+  three LND nodes pinned by digest.
+
+### Fixed
+
+- **A withdrawal refused by the dust re-check at submission stayed stuck.** The
+  submitter released the hold with no attestation while the row was already in
+  `submitting`, which the release-legality matrix correctly refuses, so
+  `ReleaseNotPermitted` was raised inside the worker and the row sat there with
+  the user's balance held. It now records the attestation the situation
+  warrants: no payout was created and none can exist.
+- **The payout workers built their backend instead of asking the registry.**
+  Harmless while every automated asset was one class, and wrong the moment one
+  was not.
+
+### Operators
+
+Nothing changes unless you set `LIGHTNING_ENABLED=true`. With it unset, the
+BTCPay scopes requested, the registered assets and the seeded `assets` rows are
+identical to v0.1.1, and a test asserts that rather than a comment claiming it.
+
+Before turning it on, read the Lightning note in the README: `BTC_LN` is a
+**separate float**, so users get a second non-fungible BTC balance, and
+enabling it makes the bootstrap request one server-level BTCPay permission.
+`SEED_LN_WITHDRAWAL_DAILY_CAP` is a second loss ceiling and the BTC cap says
+nothing about it. Turning the flag back off once the row exists is refused at
+startup, on purpose.
+
 ## [0.1.1] - 2026-08-10
 
 Three live defects found by an adversarial review of v0.1.0. All three are

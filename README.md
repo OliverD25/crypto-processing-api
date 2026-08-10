@@ -13,7 +13,29 @@ Runs on one small VPS next to BTCPay. Built for a €4/month Hetzner CAX11.
 | | Deposits | Withdrawals |
 |---|---|---|
 | **BTC** (on-chain, pruned node) | automatic | automatic via BTCPay's payout processor |
+| **BTC_LN** (Lightning, opt-in) | automatic, instant | automatic via BTCPay's Lightning payout processor |
 | **USDT-TRC20** (USDt plugin + TronGrid) | automatic | operator-sent, verified on chain |
+
+> **Read this before "we need Lightning" becomes a yes.** `BTC_LN` is a
+> **separate asset with its own float**. A user has an on-chain BTC balance and
+> a Lightning BTC balance, and they are not interchangeable: Lightning funds
+> cannot be withdrawn on chain, on-chain funds cannot be withdrawn over
+> Lightning, and nothing moves between them automatically. Moving value between
+> the two floats is an operator action —
+> [`runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md).
+>
+> Most people who say they need Lightning mean *one balance, either rail out*.
+> This is not that, and building that means a rebalancing entry kind that does
+> not exist yet. It is off by default (`LIGHTNING_ENABLED=false`), partly for
+> that reason and partly because enabling it makes the bootstrap request one
+> server-level BTCPay permission —
+> [`security.md`](docs/security.md) explains the trade-off.
+>
+> Two smaller behaviours worth knowing: a Lightning deposit invoice can be paid
+> **exactly once** (an on-chain deposit address accepts several payments), and a
+> Lightning withdrawal destination is a BOLT11 invoice that **expires**, so a
+> request that waits too long in the approval queue is refunded rather than
+> sent.
 
 - **Ledger** — append-only double-entry journal in PostgreSQL, integer amounts
   (satoshis, micro-USDT), enforced by database constraints and triggers. No
@@ -32,7 +54,7 @@ git clone https://github.com/OliverD25/crypto-processing-api && cd crypto-proces
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 docker compose -f deploy/docker-compose.test.yml up -d   # test database
-pytest                                                    # 569 tests
+pytest                                                    # 775 tests
 
 docker compose -f deploy/docker-compose.regtest.yml up -d # bitcoind, BTCPay, api, worker
 python scripts/bootstrap_btcpay.py                        # configure BTCPay
@@ -72,13 +94,14 @@ risks, is in [`docs/security.md`](docs/security.md).
 | [`api.md`](docs/api.md) | every endpoint, every error code |
 | [`deployment.md`](docs/deployment.md) | a fresh VPS to a running deployment |
 | [`btcpay-setup.md`](docs/btcpay-setup.md) | what BTCPay needs, including the manual USDt plugin steps |
-| [`extending.md`](docs/extending.md) | adding your own asset: the four pluggable facets, and what is welded shut |
+| [`extending.md`](docs/extending.md) | adding your own asset: the four pluggable facets, what is welded shut, and how `BTC_LN` was added commit by commit |
 | [`security.md`](docs/security.md) | threat model, float policy, cold sweeps |
 | [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | auditors: every control, the file it lives in, the test that proves it |
 | [`backups.md`](docs/backups.md) | continuous archiving and the restore drill |
 | [`runbook-usdt-withdrawals.md`](docs/runbook-usdt-withdrawals.md) | sending USDT by hand |
 | [`runbook-usdt-attribution.md`](docs/runbook-usdt-attribution.md) | pooled-address deposits that need a human |
 | [`runbook-reorg.md`](docs/runbook-reorg.md) | a credited deposit was orphaned |
+| [`runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md) | moving value between the on-chain and Lightning floats |
 | [`design/`](docs/design/) | the architecture, and the adversarial review it survived |
 
 ## Status
@@ -92,7 +115,7 @@ and start with amounts you would not mind losing.
 
 Not in this version: automated USDT sending (there is no payout handler in the
 BTCPay plugin — Phase 2 adds a signer), HMAC request signing for inbound auth,
-Lightning, multi-tenancy.
+a unified BTC balance spendable over either rail, multi-tenancy.
 
 ## Contributing
 

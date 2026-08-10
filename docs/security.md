@@ -53,12 +53,48 @@ and it is your check on yourself**: never sweep below `user_obligations`.
 | 2 | **Platform API key leak** | Key in the platform's logs or repo; attacker creates withdrawals to their own address | Bounded theft | SHA-256 at rest; `cpk_live_` prefix for secret scanners; per-withdrawal auto-approval limit; **rolling 24h per-asset cap, serialized on one row so concurrency cannot bypass it**; optional per-user cap; destination validation; alerts on approval-pending and cap-hit; instant revocation with multiple active keys | The attacker drains up to the daily cap before you react. **The cap is the loss ceiling — set it accordingly** |
 | 3 | **SQL injection** | Crafted `external_user_id`, address or memo | Ledger tampering | SQLAlchemy bound parameters throughout; no string-built SQL in the money path; Pydantic length and format validation; address checksums | Low. ORM discipline makes this a review problem, and the money path is small enough to review |
 | 4 | **Insider or host-level tampering** | Someone with database access UPDATEs a balance | Silent theft | Append-only journal with BEFORE UPDATE/DELETE triggers that raise; balances derived from immutable postings; hourly Job C compares materialized against derived and alerts on any drift; off-box backups enable forensics | Root on the VPS can rewrite history between checks. External anchoring is out of MVP scope, and saying so is the honest answer |
-| 5 | **BTCPay compromise** | BTCPay on the same box is owned; hot wallet keys stolen | Total hot-wallet loss | Cash management is the control: small float, manual cold sweeps; the Greenfield key is scoped to one store and is never server-admin; velocity caps limit abuse through our payout path; nothing is published to the internet | **If the box is owned, the hot wallet is gone.** The answer is to keep it small |
+| 5 | **BTCPay compromise** | BTCPay on the same box is owned; hot wallet keys stolen | Total hot-wallet loss, plus the Lightning channel balance if Lightning is on | Cash management is the control: small float, manual cold sweeps; the Greenfield runtime key is scoped to one store and is never server-admin; velocity caps limit abuse through our payout path, per asset, so Lightning has its own ceiling; nothing is published to the internet | **If the box is owned, the hot wallet is gone.** The answer is to keep it small. With `LIGHTNING_ENABLED=true` the bootstrap key also holds one server-level scope — see below |
 | 6 | **TronGrid outage or rate limit** | Free tier throttled or down | USDT delayed, not lost | Reconciliation retries; the withdrawal state machine tolerates delay without a timeout-then-retry double-send; the gas monitor alerts on a failure streak; a paid key is a documented upgrade | Hours-long USDT delays. Funds stall, they do not vanish |
 | 7 | **Double withdrawal via race** | Concurrent requests against one balance | Overdraft, which is theft from the operator | `SELECT ... FOR UPDATE` in ascending id order, decision and reservation in one transaction; `no_overdraft` CHECK as the database-level backstop; idempotency keys; **a test with real threads proves exactly one of two racing debits succeeds** | Effectively closed at the database level |
 | 8 | **Cloudflare origin bypass** | Direct-to-IP requests skip the WAF | DoS, brute force | ufw allows 443 only from Cloudflare ranges, refreshed by cron; API keys carry 256 bits, so brute force is not a threat | The bitcoind port reveals the origin IP. Accepted |
 | 9 | **Supply chain** | A malicious or vulnerable dependency | Anything | Exactly pinned direct dependencies; a deliberately small dependency set; gitleaks over full history; SBOM and provenance attestation on published images | Zero-days in FastAPI or SQLAlchemy — the same risk everyone carries |
 | 10 | **Reorg after credit** | A deposit is credited, withdrawn, then the deposit tx is orphaned | Real loss | Settlement pinned at 1 confirmation minimum, never 0-conf; `user_deficit` exists so the loss can be *booked* rather than being rejected by the overdraft CHECK; see [`runbook-reorg.md`](runbook-reorg.md) | A deep reorg still costs money. The books stay correct, which is what makes recovery possible |
+
+## The one server-level permission, and why it is off by default
+
+Every Greenfield scope this project requests is pinned to one store. There is
+exactly one exception, and it only exists if you ask for it.
+
+Enabling the `BTC-LN` payment method on a store requires
+`btcpay.server.canuseinternallightningnode`. It is **server-level**: BTCPay
+answers 403 to a store-scoped key, so there is no narrower way to do it through
+the API. That is why `LIGHTNING_ENABLED` defaults to false — the default is the
+security decision, not a convenience. With it off, the scope lists are the exact
+strings a deployment that has never heard of Lightning gets, and a test asserts
+that rather than a comment claiming it.
+
+Three things narrow the exception when you do turn it on:
+
+- **The runtime key never holds it.** It is a bootstrap scope, used once to
+  attach the node to the store. The key the service carries day to day gets
+  `btcpay.store.canuselightningnode` — reading a channel balance and a payment
+  fee — and nothing more.
+- **What it grants is use of the server's internal Lightning node.** On a
+  single-tenant box that is the same node this store would be using anyway, so
+  the practical widening is small. On a BTCPay shared with other stores it is
+  real, and you should decide about it deliberately.
+- **You can keep the bootstrap key out of the running deployment.** It lives in
+  `.env.regtest.generated` for the dev stack; in production, delete it after the
+  setup run and re-issue when you next need to change store settings.
+
+### The second float
+
+Turning Lightning on creates a second pot of money with its own loss ceiling.
+`SEED_LN_WITHDRAWAL_DAILY_CAP` bounds it and `SEED_BTC_WITHDRAWAL_DAILY_CAP`
+says nothing about it — a stolen API key can drain up to each cap independently.
+Channel balance also cannot be swept to cold storage the way wallet balance can:
+what is committed to a channel stays there until the channel is closed. Size it
+as the amount you are willing to have permanently warm.
 
 ## What protects the money, concretely
 

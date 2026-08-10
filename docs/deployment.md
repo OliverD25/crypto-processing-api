@@ -82,9 +82,48 @@ if you get them wrong:
 | `SEED_BTC_WITHDRAWAL_AUTO_LIMIT` | read once, at first `migrate`. After that the DB row is the truth |
 | `SEED_BTC_WITHDRAWAL_DAILY_CAP` | **this is your loss ceiling under a stolen API key.** Set it to what you can afford to lose in a day |
 | `PLATFORM_WEBHOOK_SECRET` | leave empty and outbound events park as pending — legitimate for a polling integration |
+| `LIGHTNING_ENABLED` | off by default. Turning it on adds a second float, a second daily cap, and one server-level BTCPay scope — see below |
 
 The seed values are read **once**. Changing them later does nothing; change the
 `assets` row with SQL.
+
+## Turning Lightning on
+
+Default is off, and off is a deployment that has never heard of Lightning: no
+`BTC_LN` row, no Lightning scope requested, nothing to think about. Read the
+README's Lightning note and [`security.md`](security.md) before changing that.
+The short version is that `BTC_LN` is a **separate float** — users get a second,
+non-fungible BTC balance — and enabling it makes the bootstrap request
+`btcpay.server.canuseinternallightningnode`, the one server-level scope this
+project ever asks for.
+
+If you still want it:
+
+```sh
+# 1. make sure BTCPay itself has a Lightning node (BTCPAY_BTCLIGHTNING)
+# 2. set LIGHTNING_ENABLED=true and the SEED_LN_* values in .env
+# 3. re-run the bootstrap so the scope, the payment method and the
+#    Lightning payout processor are configured
+LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py
+# 4. restart so `migrate` seeds the BTC_LN row and the registry picks it up
+docker compose up -d --force-recreate api worker
+```
+
+Then set the caps deliberately. `SEED_LN_WITHDRAWAL_DAILY_CAP` is a **second**
+loss ceiling: the BTC cap says nothing about how much can leave the channel.
+Channel balance also cannot be swept to cold storage — what is committed to a
+channel stays there until the channel closes — so size it as the amount you are
+willing to leave permanently warm.
+
+**Turning it back off is not a matter of unsetting the variable.** Once the
+`BTC_LN` row exists, a build without the profile refuses to start, on purpose:
+an asset holding user balances must not disappear because an environment
+variable did. Zero the balances and disable the row deliberately, or leave it on.
+
+Operating notes live in
+[`runbook-ln-rebalance.md`](runbook-ln-rebalance.md); the one to know in advance
+is that low outbound liquidity shows up as withdrawals that refund themselves
+with a definitive-failure proof, not as an error.
 
 ## Cloudflare
 

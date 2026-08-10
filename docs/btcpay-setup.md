@@ -113,6 +113,71 @@ different jobs, and the bootstrap keeps them that way.
 
 ---
 
+# Lightning (BTC_LN) — opt-in
+
+Skip this section unless you have read the Lightning warning in the README and
+still want it. `BTC_LN` is a separate custodial float, and it costs one
+server-level BTCPay permission.
+
+Everything below is done for you by:
+
+```
+LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py
+```
+
+## 1. A Lightning node the server can use
+
+BTCPay needs `BTCPAY_BTCLIGHTNING` pointing at a node before a store can use
+one. On the regtest stack that is
+`deploy/docker-compose.regtest.lightning.yml`; in production it is whatever your
+BTCPay deployment already does for Lightning (the internal node, or a connection
+string to your own LND or CLN).
+
+Nothing in this service manages the node. If BTCPay cannot see a Lightning node,
+the payment method cannot be enabled and `sync_payment_methods` will disable
+`BTC_LN` at startup with a warning — which is the correct outcome, not a bug.
+
+## 2. Enable the payment method
+
+```
+PUT /api/v1/stores/{storeId}/payment-methods/BTC-LN
+{"enabled": true, "config": {"connectionString": "Internal Node"}}
+```
+
+**This call needs `btcpay.server.canuseinternallightningnode`.** A store-scoped
+key gets a 403 naming that permission. There is no narrower way to do it through
+the API, which is why `LIGHTNING_ENABLED` exists as a switch at all — see
+[`security.md`](security.md).
+
+The bootstrap key holds it; the runtime key does not. If you enabled Lightning
+after a first bootstrap run, the stored bootstrap key predates the scope and the
+call will 403. Delete `BTCPAY_BOOTSTRAP_KEY` from the generated env file and
+re-run so a new one is issued.
+
+## 3. Lightning payout processor
+
+```
+PUT /api/v1/stores/{storeId}/payout-processors/LightningAutomatedPayoutSenderFactory/BTC-LN
+{"intervalSeconds": 60, "processNewPayoutsInstantly": true}
+```
+
+Without it, approved Lightning payouts are created and never paid.
+
+**One thing to know, and it is the reason this service has its own deadline.**
+`cancelPayoutAfterFailures` is accepted by this endpoint and then silently
+dropped from the echoed configuration. BTCPay does **not** give up on a payout it
+cannot route, however many times it fails — it retries for as long as the
+invoice lives. So `LN_PAYOUT_TIMEOUT_SECONDS` is what actually ends a stuck
+payout, and it is ours, not BTCPay's.
+
+## 4. What the runtime key gains
+
+One scope: `btcpay.store.canuselightningnode`. It reads the node's channel
+balance (the custody source for `BTC_LN`) and the routing fee of a completed
+payment. Both are reads, both are store-scoped.
+
+---
+
 # USDt plugin (USDT-TRC20)
 
 Everything here is manual. Greenfield has no plugin management, and the

@@ -88,11 +88,21 @@ insider detectable at all.
 
 | | |
 |---|---|
-| **Control** | Cash management, not cryptography: a small hot-wallet float with manual cold sweeps. The Greenfield key is scoped to one store and is never server-admin. Velocity caps bound abuse routed through our payout path. Nothing is published to the internet |
+| **Control** | Cash management, not cryptography: a small hot-wallet float with manual cold sweeps. The Greenfield **runtime** key is scoped to one store and is never server-admin. Velocity caps bound abuse routed through our payout path, **per asset**, so an enabled Lightning float carries its own ceiling rather than sharing BTC's. Nothing is published to the internet |
 | **Implementing files** | [`docs/security.md`](docs/security.md#hot-wallet-float-policy) (float policy and sweep runbook), [`deploy/docker-compose.yml`](deploy/docker-compose.yml), [`scripts/bootstrap_btcpay.py`](scripts/bootstrap_btcpay.py) |
-| **Evidence** | `test_a_store_that_cannot_take_btc_is_a_startup_failure`, `test_foreign_invoices_are_not_ours`, `test_another_stores_event_is_ignored`, `test_a_payout_that_is_not_ours_is_ignored`; the bootstrap script requests `btcpay.store.canmanagepayouts` and not server-admin |
-| **Last verified** | 2026-08-10 |
-| **Residual risk** | **Accepted and total within its blast radius.** If the box is owned, the hot wallet is gone. There is no control here that changes that; the only lever is keeping the float small. This is a procedural control, and it degrades the moment an operator stops sweeping. |
+| **Evidence** | `test_a_store_that_cannot_take_btc_is_a_startup_failure`, `test_foreign_invoices_are_not_ours`, `test_another_stores_event_is_ignored`, `test_a_payout_that_is_not_ours_is_ignored`; the bootstrap script requests `btcpay.store.canmanagepayouts` and not server-admin. Scope minimality is now asserted rather than reviewed: [`tests/unit/test_bootstrap_scopes.py`](tests/unit/test_bootstrap_scopes.py) pins both scope lists to literal strings and fails on any `btcpay.server.*` entry with Lightning off |
+| **Last verified** | 2026-08-11 |
+| **Residual risk** | **Accepted and total within its blast radius.** If the box is owned, the hot wallet is gone, and so is any Lightning channel balance. There is no control here that changes that; the only lever is keeping both floats small. This is a procedural control, and it degrades the moment an operator stops sweeping — and channel balance cannot be swept at all until the channel is closed. |
+
+#### 5a. The one server-level permission (Lightning only)
+
+| | |
+|---|---|
+| **Control** | `LIGHTNING_ENABLED` defaults to **false**, and with it false the requested scope lists are byte-identical to a build that has never heard of Lightning. Enabled, the bootstrap key additionally requests `btcpay.server.canuseinternallightningnode` — required by BTCPay to attach a Lightning node to a store, with no narrower alternative through the API. It is a **bootstrap** scope: the key the service carries at runtime gets only `btcpay.store.canuselightningnode` (read channel balance, read a payment's routing fee) |
+| **Implementing files** | [`scripts/bootstrap_btcpay.py`](scripts/bootstrap_btcpay.py) (`store_scopes`, `bootstrap_scopes`, `lightning_enabled`), [`src/crypto_processing_api/config.py`](src/crypto_processing_api/config.py), [`src/crypto_processing_api/services/asset_registry.py`](src/crypto_processing_api/services/asset_registry.py) (`build_registry`) |
+| **Evidence** | `test_the_scope_lists_are_unchanged_with_lightning_off`, `test_no_server_level_permission_is_requested_with_lightning_off`, `test_the_runtime_key_never_holds_the_server_permission`, `test_turning_lightning_on_adds_exactly_two_scopes`, `test_anything_that_is_not_a_yes_is_a_no` (the flag fails closed), `test_the_registry_is_untouched_when_lightning_is_off` |
+| **Last verified** | 2026-08-11 |
+| **Residual risk** | On a **single-tenant** BTCPay the widening is close to nominal: the permission grants use of the internal Lightning node, which is the node this store would be using anyway. On a BTCPay **shared with other stores** it genuinely reaches past this store, and the bootstrap key should be removed from the deployment after setup. Not enforced — nothing deletes it for you. |
 
 ### 6. TronGrid outage or rate limit
 
@@ -433,6 +443,30 @@ Stated plainly, because an audit that only lists its strengths is marketing.
   two runs, there is no monitoring.
 - **Coverage is not proof.** The ledger module has an 85% floor. The untested
   15% is untested.
+- **`BTC_LN` has no unattributed-receive detector.** `has_btcpay_wallet=False`,
+  because BTCPay exposes no wallet API behind `BTC-LN`, so the scan that finds
+  coins paid to an address nobody is watching cannot run for it. The exposure is
+  much smaller than USDT's — a BOLT11 invoice belongs to one deposit and can be
+  paid exactly once, so there is no pooled address to be paid again next week —
+  but "smaller" is not "none", and nothing here would notice a keysend or a
+  payment to an invoice created outside this service.
+- **The `BTC` on-chain fee drift is not journalled.** The settle entry books the
+  real network fee when the rail can report it, which Lightning can and on-chain
+  BTCPay 2.4.2 cannot: `OnChainWalletTransactionData` carries no fee field, and a
+  payout processor batches several payouts into one transaction, so there is no
+  honest per-withdrawal number to book even if it did. On-chain therefore books
+  the estimate, exactly as it did before, and any difference between the
+  estimated and real miner fee remains an unexplained custody drift. It is
+  bounded and small — the estimate is deliberately conservative — but it is real
+  and it is not detected.
+- **The definitive-failure release trusts BTCPay's answer about its own node.**
+  A hold is released automatically only when the Lightning node reports no
+  record of the payment hash, or reports every route attempt failed, and only
+  after a balance call proves the node is actually reachable. A compromised or
+  lying BTCPay could produce that answer for a payment it did settle, releasing
+  a hold for money that left. This is inside threat 5's blast radius rather than
+  a new one — the same BTCPay could simply send the money elsewhere — but it is
+  a second thing that trusts it.
 
 ## Reporting a vulnerability
 

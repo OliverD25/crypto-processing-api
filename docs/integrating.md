@@ -352,6 +352,37 @@ All of these are `422` with nothing reserved. There is no way to discover this
 later, which is the point: without it the user's balance sits on hold until a
 human notices.
 
+### Lightning (`BTC_LN`), if the deployment has it enabled
+
+A Lightning destination is not an address, and three of the differences reach
+your integration.
+
+**It is a BOLT11 invoice, and it expires.** Ask the user's wallet for one at the
+moment they confirm, not when they open the withdrawal screen. An invoice with
+less than a couple of minutes left is refused with `422`.
+
+**The invoice must be for the net amount, or for no amount at all.** BTCPay pays
+an amount-carrying BOLT11 at *its* amount rather than at the payout's, so the two
+have to agree. Under `deduct`, net is `amount_gross - fee`, and the `BTC_LN` fee
+is the flat one from `GET /v1/assets` — so you can compute it before asking the
+wallet for the invoice. An amountless invoice sidesteps the arithmetic entirely
+and is the simpler integration.
+
+**A withdrawal can be refunded after it was accepted.** If the invoice expires
+while the request waits for an operator, or the payment cannot be routed, the
+withdrawal ends `refunded` with the balance returned. Handle that terminal state
+— on chain it is rare, on Lightning it is ordinary.
+
+On the deposit side there is one difference worth surfacing in your UI: a
+Lightning deposit invoice can be paid **exactly once**. An on-chain deposit
+address accepts several payments and credits each; a BOLT11 that has been paid
+is finished, and the user needs a new deposit for a second payment.
+
+Lightning balances are also a **separate asset**. `BTC` and `BTC_LN` are two
+rows in `GET /v1/assets` and two balances in `GET /v1/users/{id}/balances`, and
+one cannot pay out over the other's rail. Show them as two balances, because
+that is what they are.
+
 ### Limits and why a small withdrawal can still need approval
 
 Three gates, all evaluated in the same transaction as the hold:
