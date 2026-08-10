@@ -41,8 +41,12 @@ DEPOSIT_CHANNEL_SATS=10000000
 # Our outbound to the payee. Deliberately small: it is the ceiling drill 10
 # exceeds, and a liquidity failure needs a liquidity limit to exist.
 PAYOUT_CHANNEL_SATS=1000000
+# The payee's outbound to the far node. Big enough that it is never the
+# constraint — the point of this channel is the *hop*, not its size, because a
+# payment with nobody to forward it pays no routing fee.
+FAR_CHANNEL_SATS=2000000
 
-NODES="lnd-btcpay lnd-user lnd-payee"
+NODES="lnd-btcpay lnd-user lnd-payee lnd-far"
 
 log() { echo "[ln] $*" >&2; }
 die() {
@@ -247,14 +251,18 @@ for node in $NODES; do wait_synced "$node"; done
 BTCPAY_KEY=$(pubkey lnd-btcpay)
 USER_KEY=$(pubkey lnd-user)
 PAYEE_KEY=$(pubkey lnd-payee)
-[ -n "$BTCPAY_KEY" ] && [ -n "$USER_KEY" ] && [ -n "$PAYEE_KEY" ] || die "could not read every pubkey"
+FAR_KEY=$(pubkey lnd-far)
+[ -n "$BTCPAY_KEY" ] && [ -n "$USER_KEY" ] && [ -n "$PAYEE_KEY" ] && [ -n "$FAR_KEY" ] ||
+    die "could not read every pubkey"
 log "btcpay=$BTCPAY_KEY"
 log "user=$USER_KEY"
 log "payee=$PAYEE_KEY"
+log "far=$FAR_KEY"
 
 log "connecting peers"
 connect_peer lnd-user "$BTCPAY_KEY" lnd-btcpay
 connect_peer lnd-btcpay "$PAYEE_KEY" lnd-payee
+connect_peer lnd-payee "$FAR_KEY" lnd-far
 sleep 3
 
 # user -> btcpay is our inbound: it is what a deposit is paid over.
@@ -262,10 +270,28 @@ ensure_channel lnd-user "$BTCPAY_KEY" lnd-btcpay "$DEPOSIT_CHANNEL_SATS"
 # btcpay -> payee is our outbound, and its size is the liquidity ceiling that
 # makes drill 10 mean something.
 ensure_channel lnd-btcpay "$PAYEE_KEY" lnd-payee "$PAYOUT_CHANNEL_SATS"
+# payee -> far exists so that paying `far` has to be forwarded by somebody, and
+# a forwarded payment is the only kind that costs a routing fee.
+ensure_channel lnd-payee "$FAR_KEY" lnd-far "$FAR_CHANNEL_SATS"
 
 mine 6
 wait_active lnd-user "$BTCPAY_KEY" lnd-btcpay
 wait_active lnd-btcpay "$PAYEE_KEY" lnd-payee
+wait_active lnd-payee "$FAR_KEY" lnd-far
+
+# Our node has to know the payee->far channel exists before it can route over
+# it, and gossip is not instant.
+log "waiting for the store's node to learn the route to lnd-far"
+i=0
+while [ "$i" -lt 45 ]; do
+    if lncli lnd-btcpay queryroutes --dest "$FAR_KEY" --amt 100000 >/dev/null 2>&1; then
+        log "  route found"
+        break
+    fi
+    i=$((i + 1))
+    sleep 2
+done
+[ "$i" -lt 45 ] || die "lnd-btcpay never learned a route to lnd-far"
 
 log "channels from the store's node:"
 # The raw lines rather than a reformat of them. `local_balance` on the payee

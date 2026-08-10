@@ -14,20 +14,31 @@
 #                  up -d --force-recreate api worker
 #   python scripts/dev/smoke_test.py --drill lightning
 #
-# Three nodes, and the third one is not padding:
+# Four nodes, and none of them is padding. Each one exists because a drill
+# cannot express something without it:
 #
 #   lnd-btcpay   the store's node. Receives deposits, sends withdrawals.
 #   lnd-user     the depositor. Opens a large channel *to* us, so paying a
 #                deposit invoice moves its balance onto our side.
-#   lnd-payee    the withdrawal destination, behind a deliberately small
-#                channel *from* us.
+#   lnd-payee    the withdrawal destination for the liquidity drill, behind a
+#                deliberately small channel *from* us. Also the forwarding hop
+#                for the one below.
+#   lnd-far      one hop further out, reachable only through lnd-payee.
 #
-# Two nodes cannot express a liquidity failure. If deposits and withdrawals
+# **Two nodes cannot express a liquidity failure.** If deposits and withdrawals
 # share one channel, every satoshi a user deposits becomes a satoshi we can pay
 # back to them, so a withdrawal can never exceed what we can route and drill 10
 # would be untestable. Splitting the counterparty makes the payee's inbound
 # capacity the binding constraint, which is what runs out first in real life
 # too.
+#
+# **Three nodes cannot express a routing fee.** A payment to a direct peer pays
+# nobody to forward it, so drill 9 booked a routing fee of exactly zero — which
+# is a true number and no evidence at all that the fee is read from the node,
+# converted from millisatoshi and journalled. Paying `lnd-far` has to cross
+# `lnd-payee`, which charges LND's default 1000 msat + 1 ppm, and 1000 msat is
+# also the most interesting case for a converter that rounds up to whole
+# satoshis.
 #
 # Three facts about this file were paid for by the R4 spike:
 #
@@ -174,6 +185,32 @@ services:
       - lnd_payee_datadir:/data
       - bitcoin_datadir:/root/.bitcoin
 
+  lnd-far:
+    <<: *lnd
+    environment:
+      <<: *lnd_env
+      LND_EXTRA_ARGS: |
+        restlisten=0.0.0.0:8080
+        rpclisten=0.0.0.0:10009
+        listen=0.0.0.0:9735
+        bitcoin.active=1
+        bitcoin.regtest=1
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpccookie=/root/.bitcoin/regtest/.cookie
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        noseedbackup=1
+        alias=far-node
+        tlsextradomain=lnd-far
+        maxpendingchannels=10
+        accept-keysend=1
+        bitcoin.defaultchanconfs=1
+        minchansize=100000
+    volumes:
+      - lnd_far_datadir:/data
+      - bitcoin_datadir:/root/.bitcoin
+
   btcpayserver:
     environment:
       # Everything else comes from the base file; compose merges maps.
@@ -206,3 +243,4 @@ volumes:
   lnd_btcpay_datadir:
   lnd_user_datadir:
   lnd_payee_datadir:
+  lnd_far_datadir:

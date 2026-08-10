@@ -727,13 +727,26 @@ def ln_pay(node: str, invoice: str, *, sats: int | None = None) -> None:
         raise SmokeFailure(f"{node} could not pay the invoice: {text[:400]}")
 
 
-def ln_local_balance() -> int:
-    """The store node's outbound liquidity, in satoshis."""
-    body = lncli("lnd-btcpay", "channelbalance")
+def ln_pubkey(node: str) -> str:
+    body = lncli(node, "getinfo")
+    key = str(body.get("identity_pubkey", "")) if isinstance(body, dict) else ""
+    if len(key) != 66:
+        raise SmokeFailure(f"{node} did not report an identity pubkey: {body!r}")
+    return key
+
+
+def ln_outbound_towards(peer_node: str) -> int:
+    """What the store's node can send *through* one peer, in satoshis.
+
+    Not `channelbalance`, which is the total across every channel. That number
+    grows with each deposit, because a deposit paid to us lands on our side of
+    the depositor's channel — so it says nothing about whether a withdrawal to
+    somebody else can be routed, and using it made drill 10 refuse to run.
+    """
+    body = lncli("lnd-btcpay", "listchannels", "--peer", ln_pubkey(peer_node))
     if not isinstance(body, dict):
-        raise SmokeFailure(f"unreadable channelbalance: {body!r}")
-    local = body.get("local_balance") or {}
-    return int(local.get("sat", 0))
+        raise SmokeFailure(f"unreadable listchannels: {body!r}")
+    return sum(int(channel.get("local_balance", 0)) for channel in body.get("channels", []))
 
 
 def drill_ln_deposit(api: Api) -> None:
@@ -776,10 +789,15 @@ def drill_ln_withdraw(api: Api) -> None:
         wait_for_status(api, deposit["deposit_id"], "settled", timeout=120)
         balances = api.ledger_balances("ln-user", asset=BTC_LN)
 
-    invoice = ln_addinvoice("lnd-payee", sats=net)
+    # `lnd-far`, not `lnd-payee`. A payment to a direct peer pays nobody to
+    # forward it, so the routing fee would be exactly zero — a true number and
+    # no evidence whatever that the fee is read from the node, converted from
+    # millisatoshi and journalled. Going one hop further makes `lnd-payee`
+    # charge for the forward.
+    invoice = ln_addinvoice("lnd-far", sats=net)
     hot_before = system_balance("hot_wallet", asset=BTC_LN)
     expense_before = system_balance("network_fee_expense", asset=BTC_LN)
-    channel_before = ln_local_balance()
+    channel_before = ln_outbound_towards("lnd-payee")
 
     created = api.create_withdrawal("ln-user", gross, invoice, f"lnw-{time.time()}", asset=BTC_LN)
     if created["status"] == "pending_approval":
@@ -798,8 +816,12 @@ def drill_ln_withdraw(api: Api) -> None:
         raise SmokeFailure(f"net is {confirmed['amount_net']}, expected {net}")
 
     routing_fee = system_balance("network_fee_expense", asset=BTC_LN) - expense_before
-    if routing_fee < 0:
-        raise SmokeFailure(f"the routing fee booked negative: {routing_fee}")
+    if routing_fee <= 0:
+        raise SmokeFailure(
+            f"the routing fee booked {routing_fee}; a forwarded payment must cost "
+            "something, so a zero here means the fee was never read from the node "
+            "(or the route went direct and this drill is not testing what it claims)"
+        )
 
     hot_after = system_balance("hot_wallet", asset=BTC_LN)
     if hot_before - hot_after != net + routing_fee:
@@ -810,7 +832,7 @@ def drill_ln_withdraw(api: Api) -> None:
     if system_balance("payouts_in_flight", asset=BTC_LN) != 0:
         raise SmokeFailure("payouts_in_flight did not unwind")
 
-    channel_drop = channel_before - ln_local_balance()
+    channel_drop = channel_before - ln_outbound_towards("lnd-payee")
     log(
         f"  paid {net} sat, hash {txid[:16]}..., routing fee {routing_fee} sat booked; "
         f"ledger custody -{net + routing_fee}, channel -{channel_drop}"
@@ -833,12 +855,12 @@ def drill_ln_exhausted(api: Api) -> None:
         wait_for_status(api, deposit["deposit_id"], "settled", timeout=120)
         balances = api.ledger_balances("ln-drain", asset=BTC_LN)
 
-    outbound = ln_local_balance()
+    outbound = ln_outbound_towards("lnd-payee")
     if outbound >= gross:
         raise SmokeFailure(
-            f"the store node can route {outbound} sat, which is more than the {gross} sat "
-            "this drill asks for — re-run scripts/dev/ln_bootstrap.sh, the payee channel "
-            "is meant to be the limit"
+            f"the store node can send {outbound} sat through lnd-payee, which is more "
+            f"than the {gross} sat this drill asks for — re-run "
+            "scripts/dev/ln_bootstrap.sh, that channel is meant to be the limit"
         )
 
     invoice = ln_addinvoice("lnd-payee", sats=LN_UNROUTABLE_NET)
