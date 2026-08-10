@@ -12,6 +12,7 @@ Start the database with:
 from __future__ import annotations
 
 import uuid
+from argparse import Namespace
 from collections.abc import Iterator
 
 import httpx
@@ -51,8 +52,30 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         item.add_marker(pytest.mark.integration)
 
 
+def make_alembic_config(url: str) -> Config:
+    """An Alembic config pointed at `url`, with no credentials on disk.
+
+    The url goes through `-x db_url=`, not `sqlalchemy.url`. migrations/env.py
+    resolves the target itself and prefers DATABASE_URL over anything in the
+    ini, so setting `sqlalchemy.url` here is silently ignored — a migration
+    aimed at a scratch database would quietly run against the main one instead.
+    `-x db_url=` is the override env.py checks first, and is the only one that
+    actually steers it.
+    """
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    config.set_main_option("sqlalchemy.url", url)
+    config.cmd_opts = Namespace(x=[f"db_url={url}"])
+    return config
+
+
 @pytest.fixture(scope="session")
-def engine() -> Iterator[Engine]:
+def alembic_ini() -> Config:
+    return make_alembic_config(TEST_DATABASE_URL)
+
+
+@pytest.fixture(scope="session")
+def engine(alembic_ini: Config) -> Iterator[Engine]:
     engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     try:
         with engine.connect() as connection:
@@ -63,11 +86,8 @@ def engine() -> Iterator[Engine]:
             "Start it with: docker compose -f deploy/docker-compose.test.yml up -d"
         )
 
-    config = Config(str(REPO_ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(REPO_ROOT / "migrations"))
-    config.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
+    command.downgrade(alembic_ini, "base")
+    command.upgrade(alembic_ini, "head")
 
     yield engine
     engine.dispose()

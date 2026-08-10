@@ -21,7 +21,6 @@ from sqlalchemy import (
     Index,
     Integer,
     SmallInteger,
-    String,
     Text,
     UniqueConstraint,
     Uuid,
@@ -157,7 +156,7 @@ class Account(Base):
     asset_id: Mapped[str] = mapped_column(Text, ForeignKey("assets.id"), nullable=False)
     kind: Mapped[AccountKind] = mapped_column(_pg_enum(AccountKind, "account_kind"), nullable=False)
     external_user_id: Mapped[str | None] = mapped_column(Text)
-    normal_side: Mapped[NormalSide] = mapped_column(String, nullable=False)
+    normal_side: Mapped[NormalSide] = mapped_column(Text, nullable=False)
     balance: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -378,6 +377,17 @@ class Withdrawal(Base):
         Index(
             "ux_withdrawals_txid", "txid", unique=True, postgresql_where=text("txid IS NOT NULL")
         ),
+        # Both of these are created by migration 0003 and are declared here only
+        # so the metadata tells the truth. Nothing builds DDL from these models —
+        # the migrations own the schema — but `alembic check` compares against
+        # them, and an index it cannot see is an index it proposes to drop.
+        Index(
+            "ix_withdrawals_destination",
+            "asset_id",
+            "destination_address",
+            text("created_at DESC"),
+        ),
+        Index("ix_withdrawals_velocity", "asset_id", text("created_at DESC")),
     )
 
 
