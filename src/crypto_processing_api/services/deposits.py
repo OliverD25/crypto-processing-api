@@ -635,7 +635,12 @@ def refresh_deposit(
         raise InvoiceMismatch(f"deposit {deposit_id} has no invoice yet")
     invoice = gateway.get_invoice(deposit.btcpay_invoice_id)
     return apply_invoice_state(
-        session, gateway, deposit_id=deposit_id, invoice=invoice, actor=actor
+        session,
+        gateway,
+        deposit_id=deposit_id,
+        invoice=invoice,
+        actor=actor,
+        tolerance_pct=tolerance_pct,
     )
 
 
