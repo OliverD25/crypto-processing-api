@@ -32,3 +32,6 @@ btcpay-data/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Hypothesis keeps failing counterexamples here. Useful locally, noise in git.
+.hypothesis/

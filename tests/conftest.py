@@ -36,3 +36,34 @@ os.environ.setdefault("BTCPAY_WEBHOOK_SECRET", FAKE_WEBHOOK_SECRET)
 # party being reachable.
 os.environ.setdefault("BITCOIN_NETWORK", "regtest")
 os.environ.setdefault("MEMPOOL_SPACE_URL", "")
+
+# --------------------------------------------------------------------------
+# Hypothesis profiles
+#
+# `ci` is derandomized on purpose: a pull request must not go red on someone
+# else's luck, and a property failure that only one run in twenty sees teaches
+# people to hit rerun. `nightly` takes the random seed and twenty times the
+# examples, where an extra ten minutes costs nothing and a real find is worth
+# the triage.
+# --------------------------------------------------------------------------
+from hypothesis import HealthCheck, settings  # noqa: E402
+
+settings.register_profile(
+    "ci",
+    max_examples=15,
+    stateful_step_count=30,
+    deadline=None,  # database latency jitter must not fail a test
+    derandomize=True,
+    print_blob=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
+)
+settings.register_profile(
+    "nightly",
+    max_examples=300,
+    stateful_step_count=50,
+    deadline=None,
+    derandomize=False,
+    print_blob=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.too_slow],
+)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "ci"))
