@@ -1,0 +1,23 @@
+title = "crypto-processing-api"
+
+# Start from every rule gitleaks ships and add to it, never replace it.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives, kept as narrow as possible"
+
+# gitleaks' generic-api-key rule fires on `readwrite_key, expected_amount="0.5"`
+# in the deposit tests: it sees an identifier ending in `key` followed by an
+# assignment and calls the amount a secret.
+#
+# The allowlist is a regex on the amount literal rather than a path exclusion
+# for tests/. Excluding the whole test tree would also hide a real credential
+# committed into a fixture, and this pattern cannot: an API key is not a bare
+# decimal number.
+# Matched against the whole line: the "secret" gitleaks extracts here is just
+# the number, which on its own is far too generic to allowlist safely.
+regexTarget = "line"
+regexes = [
+  '''expected_amount="-?[0-9.]+"''',
+]
