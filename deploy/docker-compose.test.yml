@@ -1,0 +1,32 @@
+# Throwaway PostgreSQL for the integration suite.
+#
+# The ledger tests run against a real Postgres 16, never SQLite: deferred
+# constraint triggers, partial unique indexes, FOR UPDATE and ON CONFLICT are
+# exactly the mechanisms under test.
+#
+#   docker compose -f deploy/docker-compose.test.yml up -d
+#   docker compose -f deploy/docker-compose.test.yml down -v
+#
+# Port 54329, not 5432, so it cannot collide with a local Postgres, and never
+# 8080 which is permanently taken on some developer machines.
+name: cpapi-test
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cpapi
+      POSTGRES_PASSWORD: cpapi
+      POSTGRES_DB: cpapi_test
+      # No durability needed for a database that is recreated per run.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "max_connections=100"]
+    ports:
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cpapi -d cpapi_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
