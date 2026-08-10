@@ -310,7 +310,8 @@ setting that can be turned back on by mistake.
 | Nightly workflow triggers | `schedule` + `workflow_dispatch` only |
 | What the nightly checks out | this repo, `ref: main`, `persist-credentials: false` |
 | Actions in the nightly | pinned by full 40-character commit SHA |
-| Container images in the nightly | pinned by digest |
+| Container images the *runner* is built from | pinned by digest, and the runner tarball by sha256 |
+| Container images of the *stack under test* | pinned by exact tag in `deploy/docker-compose.regtest.yml`, not by digest — a tag can be repointed, so this is weaker than the row above |
 
 ### Defence in depth on the machine
 
