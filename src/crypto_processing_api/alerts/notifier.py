@@ -44,6 +44,11 @@ class AlertCode(StrEnum):
 
     WITHDRAWAL_PENDING_APPROVAL = "withdrawal.pending_approval"
     WITHDRAWAL_CAP_HIT = "withdrawal.cap_hit"
+    #: A withdrawal settled without the rail's real network fee, because the
+    #: rail could not be asked. Custody will read short by that fee with no
+    #: entry naming it, which is the shape of a loss — so it is said out loud
+    #: once, here, rather than discovered later as an unexplained drift.
+    WITHDRAWAL_FEE_UNBOOKED = "withdrawal.fee_unbooked"
     TRON_LOW_TRX_BALANCE = "tron.low_trx_balance"
     TRON_GRID_UNREACHABLE = "tron.grid_unreachable"
     OUTBOUND_DEAD_LETTER = "outbound.dead_letter"

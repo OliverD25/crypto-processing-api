@@ -231,6 +231,50 @@ def test_an_ambiguous_submission_leaves_the_row_in_submitting(
     assert system_balance(session, AccountKind.PAYOUTS_IN_FLIGHT) == 0
 
 
+def test_a_withdrawal_refused_at_submission_gives_the_hold_straight_back(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """The fee is re-quoted at submission and can have become impossible.
+
+    This path was broken and untested. The submitter released the hold with no
+    attestation while the row was already in `submitting`, which the legality
+    matrix correctly refuses, so `ReleaseNotPermitted` was raised inside the
+    worker and the row stayed in `submitting` with the user's balance held —
+    a doomed withdrawal turned into a support ticket instead of a refund.
+
+    It is allowed to be automatic because the code has genuinely checked: the
+    claim moved the row out of `approved` so nothing else can be sending it,
+    and the backend has not been called. The attestation says exactly that.
+    """
+    credit_user(session, user="dust", amount=FUNDED)
+    withdrawal_id = make_withdrawal(client, readwrite_key, user="dust")
+    available_before = user_balance(session, "dust", AccountKind.USER_AVAILABLE)
+
+    # 1000 sat/vB over the assumed 300 vB is a 300_000 sat fee on a 100_000
+    # sat withdrawal, so nothing could arrive.
+    fake_btcpay.fee_rate = 1000.0
+    report = submit(session_factory, fake_btcpay)
+
+    assert report.failed == 1
+    assert not fake_btcpay.payouts, "a refused withdrawal must not reach the backend"
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.REFUNDED
+    assert withdrawal.released_by == withdrawal_service.ACTOR_NEVER_SUBMITTED
+    assert "no payout was created" in (withdrawal.release_attestation or "")
+    assert "fee re-check failed" in (withdrawal.failure_reason or "")
+
+    assert user_balance(session, "dust", AccountKind.USER_AVAILABLE) == available_before + GROSS
+    assert user_balance(session, "dust", AccountKind.USER_HOLD) == 0
+    assert system_balance(session, AccountKind.PAYOUTS_IN_FLIGHT) == 0
+    assert_ledger_consistent(session)
+
+
 def test_stuck_submitting_adopts_the_payout_that_carries_its_id(
     client: TestClient,
     session: Session,

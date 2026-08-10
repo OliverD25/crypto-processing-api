@@ -42,11 +42,7 @@ from crypto_processing_api.ledger.models import (
 from crypto_processing_api.services import asset_registry
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
-from crypto_processing_api.services.backends import (
-    BtcpayPayoutBackend,
-    ManualTronBackend,
-    TronTxVerifier,
-)
+from crypto_processing_api.services.backends import ManualTronBackend, TronTxVerifier
 
 logger = get_logger(__name__)
 
@@ -348,12 +344,19 @@ def sweep_withdrawals(
             backend_ref = withdrawal.backend_ref
             if not backend_ref:
                 continue
-            backend = BtcpayPayoutBackend(gateway, payout_method_id=asset.btcpay_payment_method)
+            backend = asset_registry.automated_backend_for(
+                asset, gateway=gateway, settings=settings
+            )
             previous = withdrawal.status
             try:
                 payout = backend.poll_status(backend_ref)
                 withdrawal_service.apply_payout_state(
-                    session, withdrawal_id=withdrawal_id, payout=payout
+                    session,
+                    withdrawal_id=withdrawal_id,
+                    payout=payout,
+                    actual_wallet_fee=withdrawal_service.settlement_fee(
+                        backend, payout, settings=settings
+                    ),
                 )
                 session.commit()
             except (BTCPayError, withdrawal_service.WithdrawalError) as exc:

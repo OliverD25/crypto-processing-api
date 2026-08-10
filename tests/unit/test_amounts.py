@@ -10,7 +10,13 @@ from decimal import Decimal
 
 import pytest
 
-from crypto_processing_api.core.amounts import MAX_UNITS, AmountError, from_units, to_units
+from crypto_processing_api.core.amounts import (
+    MAX_UNITS,
+    AmountError,
+    from_units,
+    msat_to_sat_round_up,
+    to_units,
+)
 
 BTC_DECIMALS = 8
 USDT_DECIMALS = 6
@@ -106,3 +112,39 @@ def test_round_trip_is_lossless() -> None:
 def test_from_units_rejects_negative() -> None:
     with pytest.raises(AmountError):
         from_units(-1, BTC_DECIMALS)
+
+
+@pytest.mark.parametrize(
+    ("millisatoshi", "expected"),
+    [
+        (0, 0),
+        (1, 1),
+        (999, 1),
+        (1000, 1),
+        (1001, 2),
+        (1500, 2),
+        (1999, 2),
+        (2000, 2),
+        (123_456, 124),
+    ],
+)
+def test_routing_fees_round_up_to_whole_satoshis(millisatoshi: int, expected: int) -> None:
+    assert msat_to_sat_round_up(millisatoshi) == expected
+
+
+def test_rounding_up_never_understates_the_fee() -> None:
+    """The direction is the whole reason this function exists.
+
+    Understating a fee leaves satoshis missing from the wallet with no entry
+    saying where they went, which is indistinguishable from a loss. Overstating
+    costs at most one satoshi and puts it somewhere an operator can read.
+    """
+    for millisatoshi in range(0, 5000):
+        booked = msat_to_sat_round_up(millisatoshi)
+        assert booked * 1000 >= millisatoshi
+        assert booked * 1000 - millisatoshi < 1000
+
+
+def test_a_negative_fee_is_refused() -> None:
+    with pytest.raises(AmountError, match="negative"):
+        msat_to_sat_round_up(-1)

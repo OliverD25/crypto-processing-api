@@ -148,7 +148,7 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             lock_key=JOB_WEBHOOKS,
             interval_seconds=settings.webhook_poll_interval_seconds,
             run=lambda: webhook_processor.process_pending(
-                factory, gateway, max_attempts=settings.webhook_max_attempts
+                factory, gateway, max_attempts=settings.webhook_max_attempts, settings=settings
             ),
         ),
         Job(

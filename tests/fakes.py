@@ -31,6 +31,8 @@ from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayNotFo
 from crypto_processing_api.gateway.btcpay_models import (
     Invoice,
     InvoicePaymentMethod,
+    LightningBalance,
+    LightningPayment,
     Payout,
     StorePaymentMethod,
     WalletOverview,
@@ -38,6 +40,7 @@ from crypto_processing_api.gateway.btcpay_models import (
 )
 
 BTC_METHOD = "BTC-CHAIN"
+LN_METHOD = "BTC-LN"
 
 
 def regtest_address(seed: str, *, hrp: str = "bcrt") -> str:
@@ -173,6 +176,12 @@ class FakeBTCPay:
         self.fee_rate = 10.0
         self.wallet_balance = "1.00000000"
         self.wallet_transactions: list[dict[str, Any]] = []
+        #: Outgoing Lightning payments the node knows about, keyed by payment
+        #: hash. Absent means BTCPay answers 404, which is the whole point: the
+        #: node having no record is the proof a payout never left.
+        self.lightning_payments: dict[str, dict[str, Any]] = {}
+        #: Millisatoshi, as BTCPay reports channel balances.
+        self.lightning_local_msat = "500000000"
         self.redelivered: list[tuple[str, str]] = []
         self.calls: list[str] = []
         #: Set to an exception to make the next call of that name blow up. The
@@ -367,6 +376,51 @@ class FakeBTCPay:
     def redeliver_webhook(self, webhook_id: str, delivery_id: str) -> None:
         self._maybe_fail("redeliver_webhook")
         self.redelivered.append((webhook_id, delivery_id))
+
+    # -- lightning --------------------------------------------------------
+
+    def get_lightning_balance(self, crypto_code: str) -> LightningBalance:
+        self._maybe_fail("get_lightning_balance")
+        return LightningBalance.model_validate(
+            {
+                "onchain": {"confirmed": "0", "unconfirmed": "0", "reserved": "0"},
+                "offchain": {
+                    "opening": "0",
+                    "local": self.lightning_local_msat,
+                    "remote": "1000000",
+                    "closing": "0",
+                },
+            }
+        )
+
+    def get_lightning_payment(self, crypto_code: str, payment_hash: str) -> LightningPayment:
+        self._maybe_fail("get_lightning_payment")
+        payment = self.lightning_payments.get(payment_hash)
+        if payment is None:
+            raise BTCPayNotFound(f"no lightning payment {payment_hash}")
+        return LightningPayment.model_validate(payment)
+
+    def record_lightning_payment(
+        self,
+        payment_hash: str,
+        *,
+        status: str = "Complete",
+        total_msat: int = 0,
+        fee_msat: int | None = 0,
+    ) -> None:
+        """Teach the node about one outgoing payment.
+
+        `fee_msat=None` records a payment the node reports without a fee, which
+        is the case that must book the estimate rather than guess at zero.
+        """
+        body: dict[str, Any] = {
+            "paymentHash": payment_hash,
+            "status": status,
+            "totalAmount": str(total_msat),
+        }
+        if fee_msat is not None:
+            body["feeAmount"] = str(fee_msat)
+        self.lightning_payments[payment_hash] = body
 
     # -- payouts ----------------------------------------------------------
 

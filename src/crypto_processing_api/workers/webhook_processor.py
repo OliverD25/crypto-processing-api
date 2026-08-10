@@ -20,9 +20,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.config import Settings, get_settings
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayGateway, BTCPayNotFound
 from crypto_processing_api.ledger.models import Deposit, WebhookEvent, Withdrawal
+from crypto_processing_api.services import asset_registry
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.backends import normalize_btcpay_payout
@@ -93,10 +95,16 @@ def _find_deposit(session: Session, event: WebhookEvent) -> Deposit | None:
     return session.get(Deposit, deposit_id)
 
 
-def handle_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) -> str:
+def handle_event(
+    session: Session,
+    gateway: BTCPayGateway,
+    event: WebhookEvent,
+    *,
+    settings: Settings | None = None,
+) -> str:
     """Return the status this event should end in."""
     if event.event_type in PAYOUT_EVENTS:
-        return _handle_payout_event(session, gateway, event)
+        return _handle_payout_event(session, gateway, event, settings)
     if event.event_type.startswith("Payout"):
         return STATUS_IGNORED
     if event.event_type not in INVOICE_EVENTS:
@@ -123,7 +131,9 @@ def handle_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) 
     return STATUS_PROCESSED
 
 
-def _handle_payout_event(session: Session, gateway: BTCPayGateway, event: WebhookEvent) -> str:
+def _handle_payout_event(
+    session: Session, gateway: BTCPayGateway, event: WebhookEvent, settings: Settings | None
+) -> str:
     """Payout events carry ids and states, never amounts or transaction ids.
 
     So the handler always follows up with a GET: the txid lives in
@@ -155,8 +165,18 @@ def _handle_payout_event(session: Session, gateway: BTCPayGateway, event: Webhoo
                 return STATUS_ORPHANED
             return STATUS_IGNORED
 
+    normalized = normalize_btcpay_payout(payout)
+    # The webhook is the fast path and usually reaches `Completed` before Job B
+    # does, so it has to book the real fee too. Otherwise which of the two
+    # happened to arrive first would decide whether a routing fee was recorded.
+    resolved = settings or get_settings()
+    asset = withdrawal_service.get_asset(session, withdrawal.asset_id, require_enabled=False)
+    backend = asset_registry.automated_backend_for(asset, gateway=gateway, settings=resolved)
     withdrawal_service.apply_payout_state(
-        session, withdrawal_id=withdrawal.id, payout=normalize_btcpay_payout(payout)
+        session,
+        withdrawal_id=withdrawal.id,
+        payout=normalized,
+        actual_wallet_fee=withdrawal_service.settlement_fee(backend, normalized, settings=resolved),
     )
     return STATUS_PROCESSED
 
@@ -167,6 +187,7 @@ def process_pending(
     *,
     limit: int = 25,
     max_attempts: int = 10,
+    settings: Settings | None = None,
 ) -> ProcessReport:
     report = ProcessReport()
     deferred: set[int] = set()
@@ -179,7 +200,7 @@ def process_pending(
             event_id = event.id
             attempts = event.attempts
             try:
-                outcome = handle_event(session, gateway, event)
+                outcome = handle_event(session, gateway, event, settings=settings)
                 event.status = outcome
                 event.processed_at = datetime.now(UTC)
                 event.attempts = attempts + 1

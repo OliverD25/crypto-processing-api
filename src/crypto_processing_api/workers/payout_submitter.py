@@ -16,6 +16,7 @@ Two rules follow from that:
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,7 +29,7 @@ from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.ledger.models import Withdrawal, WithdrawalStatus
 from crypto_processing_api.services import asset_registry, fees, withdrawals
-from crypto_processing_api.services.backends import BackendPayout, BtcpayPayoutBackend
+from crypto_processing_api.services.backends import BackendPayout
 
 logger = get_logger(__name__)
 
@@ -69,12 +70,14 @@ def submit_approved(
         with session_factory() as session:
             withdrawal = withdrawals.get(session, withdrawal_id)
             asset = withdrawals.get_asset(session, withdrawal.asset_id, require_enabled=False)
-            payment_method = asset.btcpay_payment_method
             decimals = asset.decimals
             gross = withdrawal.amount_gross
             profile = asset_registry.profile_for(asset.id)
             fee_policy = profile.fee_policy(
                 asset_registry.RegistryContext(settings=settings, asset=asset, gateway=gateway)
+            )
+            backend = asset_registry.automated_backend_for(
+                asset, gateway=gateway, settings=settings
             )
 
         try:
@@ -82,16 +85,15 @@ def submit_approved(
             # submission, and between the two the mempool may have moved.
             quote = fee_policy.quote(gross=gross)
         except fees.DustAmount as exc:
-            with session_factory() as session:
-                withdrawal = withdrawals.lock(session, withdrawal_id)
-                withdrawal.failure_reason = f"fee re-check failed: {exc}"
-                withdrawals.release_hold(session, withdrawal, actor="auto")
-                session.commit()
+            _abandon_before_sending(
+                session_factory,
+                withdrawal_id,
+                reason=f"fee re-check failed: {exc}",
+            )
             report.failed += 1
             logger.warning("submit.dust_at_submission", withdrawal_id=str(withdrawal_id))
             continue
 
-        backend = BtcpayPayoutBackend(gateway, payout_method_id=payment_method)
         try:
             with session_factory() as session:
                 withdrawal = withdrawals.get(session, withdrawal_id)
@@ -123,6 +125,39 @@ def submit_approved(
         )
 
     return report
+
+
+def _abandon_before_sending(
+    session_factory: Callable[[], Session], withdrawal_id: uuid.UUID, *, reason: str
+) -> None:
+    """Give the hold back on a row this worker refused to send.
+
+    Reached only from the window between claiming a row and calling the
+    backend, which is the one place in the service where "no payout exists for
+    this withdrawal" is a fact rather than a hope: the claim moved the row out
+    of `approved`, so nothing else can be submitting it, and the backend has
+    not been called yet.
+
+    That fact is written down as the release attestation. It has to be, because
+    the row is already in `submitting` and the legality matrix — correctly —
+    refuses a bare automatic release from there. Before this the release was
+    attempted with no attestation at all and raised `ReleaseNotPermitted`,
+    leaving the row stuck in `submitting` with the user's balance held: a
+    doomed withdrawal turned into a support ticket.
+    """
+    with session_factory() as session:
+        withdrawal = withdrawals.lock(session, withdrawal_id)
+        withdrawal.failure_reason = reason
+        withdrawals.auto_release_with_proof(
+            session,
+            withdrawal,
+            actor=withdrawals.ACTOR_NEVER_SUBMITTED,
+            proof=(
+                f"{reason}. The withdrawal was refused before the backend was called, so no "
+                "payout was created for it and none can exist."
+            ),
+        )
+        session.commit()
 
 
 def _record_submission(
@@ -170,7 +205,9 @@ def resolve_stuck(
         with session_factory() as session:
             withdrawal = withdrawals.get(session, withdrawal_id)
             asset = withdrawals.get_asset(session, withdrawal.asset_id, require_enabled=False)
-            backend = BtcpayPayoutBackend(gateway, payout_method_id=asset.btcpay_payment_method)
+            backend = asset_registry.automated_backend_for(
+                asset, gateway=gateway, settings=settings
+            )
             try:
                 mine, unclaimed = backend.find_for_withdrawal(withdrawal)
             except BTCPayError as exc:

@@ -239,3 +239,55 @@ class FeeRate(TransportModel):
     """Sats per virtual byte, as BTCPay's wallet reports it."""
 
     fee_rate: str | float = Field(alias="feeRate")
+
+
+#: What BTCPay's Lightning node says about one outgoing payment. `Unknown` is
+#: the node having no record, which for a payout that was cancelled is the
+#: answer that matters.
+LightningPaymentStatus = Literal["Unknown", "Pending", "Complete", "Failed"]
+
+
+class LightningPayment(TransportModel):
+    """One outgoing Lightning payment, keyed by its payment hash.
+
+    The reason this endpoint is called at all: a completed Lightning *payout*
+    reports the same amount in `originalAmount` and `payoutAmount`, so the
+    routing fee is nowhere on it. It is here instead.
+
+    **Both amounts are millisatoshi**, unlike every other amount in this API,
+    and they arrive as strings. Reading `feeAmount` as satoshis would book a
+    thousand times the real fee.
+    """
+
+    id: str | None = None
+    #: Server-owned enum, so a plain string — the same reasoning as
+    #: `Payout.state`. An unrecognised status must not raise inside a poller.
+    status: str = "Unknown"
+    bolt11: str | None = Field(default=None, alias="BOLT11")
+    payment_hash: str | None = Field(default=None, alias="paymentHash")
+    preimage: str | None = None
+    created_at: int | None = Field(default=None, alias="createdAt")
+    total_amount: str | int | None = Field(default=None, alias="totalAmount")
+    fee_amount: str | int | None = Field(default=None, alias="feeAmount")
+
+
+class LightningBalance(TransportModel):
+    """Channel and on-chain balances of the store's Lightning node.
+
+    Only `offchain.local` is custody for `BTC_LN` purposes: it is the outbound
+    liquidity, which is the only part of the node's money that can actually pay
+    a withdrawal. On-chain funds in the same node belong to a different float
+    and counting them would make the solvency check answer a question nobody
+    asked.
+    """
+
+    onchain: dict[str, Any] | None = None
+    offchain: dict[str, Any] | None = None
+
+    @property
+    def local_msat(self) -> str | int | None:
+        """Outbound liquidity, in whatever units the node reported."""
+        if not self.offchain:
+            return None
+        value = self.offchain.get("local")
+        return value if isinstance(value, str | int) else None

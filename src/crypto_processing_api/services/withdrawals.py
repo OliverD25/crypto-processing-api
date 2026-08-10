@@ -3,20 +3,44 @@
 ## The posting matrix
 
 `G` gross (debited from the user), `f` fee charged to the user, `net = G - f`
-sent on-chain, `w` miner fee this wallet expects to pay, `C = net + w` the
-custody committed to the payout.
+sent on-chain, `w` the network fee this wallet pays, `C = net + w_est` the
+custody committed to the payout at submission time.
 
     hold       withdrawal_hold      DR user_available +G   CR user_hold -G
     submit     withdrawal_submit    DR payouts_in_flight +C   CR hot_wallet -C
     settle     withdrawal_settle    DR user_hold +G
-                                    DR network_fee_expense +w
+                                    DR network_fee_expense +w_actual
                                     CR fee_income -f
                                     CR payouts_in_flight -C
+                                    ±  hot_wallet -(w_actual - w_est)
     un-submit  reversal             DR hot_wallet +C   CR payouts_in_flight -C
     release    withdrawal_release   DR user_hold +G   CR user_available -G
 
-Settle sums to `G + w - f - C = G - f - net = 0` under `deduct`, and to
-`G + w - 0 - (G + w) = 0` under `absorb`, where `f = 0` and `net = G`.
+Settle sums to `G + w_actual - f - C - (w_actual - w_est) = G - f - net = 0`.
+
+Two rules govern the settle entry, and they are what make the last line
+necessary.
+
+**`payouts_in_flight` unwinds exactly what was committed.** Not a re-estimate:
+the submit entry moved a specific number out of `hot_wallet`, and only that
+number can be moved back. Anything else leaves a residue in an account whose
+balance is the tolerance the insolvency check is derived from.
+
+**`network_fee_expense` books what the rail actually charged.** The estimate is
+what we reserved; the expense is what happened. When they differ the difference
+has to land somewhere, and `hot_wallet` is the honest place: paying more than
+estimated really did take more coins out of the wallet, and paying less really
+did leave the surplus in it.
+
+When the estimate is right the last posting is zero and is omitted, so on-chain
+BTC — where the fee is fixed at submission and the wallet pays exactly it —
+produces byte-identical entries to before this existed.
+
+Lightning is why it exists. A routing fee cannot be known in advance, so
+`FlatFee` commits `C = net` with `w_est = 0` and the whole routing fee is
+drift. Left unbooked, every Lightning withdrawal would take a little more out of
+the channel than the ledger records — cumulatively, with no entry naming it,
+until Job C reports an insolvency an operator cannot explain.
 
 The submit entry is why the insolvency check can be exact. Between broadcast
 and confirmation the coins have really left the wallet; without it the ledger
@@ -29,8 +53,24 @@ Releasing a hold after a transaction may exist is a double-pay path: the user
 gets their balance back and the original transaction confirms anyway. So
 automatic release happens only from `requested`, `pending_approval`, `approved`
 and from `submitting` once reconciliation has proved no payout exists. From
-`submitted` onward it takes an admin, an attestation recorded on the row, and
-never an automatic mapping from a backend status.
+`submitted` onward it takes an attestation recorded on the row, and never an
+automatic mapping from a backend status.
+
+The attestation is normally an admin's: a human saying, on the record, that they
+looked and the money is not going to arrive. `auto_release_with_proof` is the
+narrow exception, and it is narrow on purpose. It writes a machine-generated
+attestation, and only two callers may use it, because only two situations let
+the code know as much as a human could:
+
+- the submitter refused a withdrawal *before* creating a payout, so no payout
+  for it can exist anywhere;
+- a backend that implements `ProvesDefinitiveFailure` reports its rail has no
+  record of the payment at all after the payout was cancelled.
+
+Everything else — a timeout, a failed poll, an unhelpful backend status — is
+still a human's decision. The rule being protected is that a release is a claim
+about the world, so it may only be automatic where the code has actually
+checked the world.
 """
 
 from __future__ import annotations
@@ -43,11 +83,13 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.alerts.notifier import AlertCode, Severity, notify
 from crypto_processing_api.config import Settings
 from crypto_processing_api.core.addresses import AddressError
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.ids import uuid7
 from crypto_processing_api.core.redaction import get_logger
+from crypto_processing_api.gateway.btcpay_client import BTCPayError
 from crypto_processing_api.ledger import service as ledger
 from crypto_processing_api.ledger.models import (
     Account,
@@ -66,6 +108,7 @@ from crypto_processing_api.services.backends import (
     BackendPayout,
     BackendPayoutState,
     ManualTronBackend,
+    ReportsActualFee,
 )
 from crypto_processing_api.services.fees import FeeQuote
 
@@ -440,12 +483,24 @@ def post_submit_entry(session: Session, withdrawal: Withdrawal, quote: FeeQuote)
     return entry
 
 
-def post_settle_entry(session: Session, withdrawal: Withdrawal) -> JournalEntry:
-    """`DR user_hold +G, DR network_fee_expense +w, CR fee_income -f, CR payouts_in_flight -C`."""
+def post_settle_entry(
+    session: Session, withdrawal: Withdrawal, *, actual_wallet_fee: int | None = None
+) -> JournalEntry:
+    """The settle entry from the module matrix, including the fee drift.
+
+    `actual_wallet_fee` is what the rail really charged, when the rail can be
+    asked. None means "the estimate is all there is", which is the on-chain
+    case and reproduces the entry this function has always written.
+    """
     if withdrawal.submit_entry_id is None:
         raise WithdrawalError(
             f"withdrawal {withdrawal.id} has no submit entry; settling would credit "
             "payouts_in_flight for money that was never committed"
+        )
+    if actual_wallet_fee is not None and actual_wallet_fee < 0:
+        raise WithdrawalError(
+            f"withdrawal {withdrawal.id} reported a negative network fee "
+            f"({actual_wallet_fee}); a fee that pays us is not a fee"
         )
     asset_id = withdrawal.asset_id
     gross = withdrawal.amount_gross
@@ -456,7 +511,10 @@ def post_settle_entry(session: Session, withdrawal: Withdrawal) -> JournalEntry:
     # `absorb` the user was charged nothing while the wallet still paid a
     # miner fee, and the difference shows up here.
     committed = _committed_from_entry(session, withdrawal.submit_entry_id)
-    wallet_fee = committed - net
+    estimated_wallet_fee = committed - net
+    wallet_fee = estimated_wallet_fee if actual_wallet_fee is None else actual_wallet_fee
+    # Positive when the rail cost more than was reserved for it.
+    drift = wallet_fee - estimated_wallet_fee
 
     _available, hold_account = ledger.get_user_accounts(
         session, asset_id=asset_id, external_user_id=withdrawal.external_user_id
@@ -477,6 +535,9 @@ def post_settle_entry(session: Session, withdrawal: Withdrawal) -> JournalEntry:
         postings.append((expense.id, wallet_fee))
     if fee:
         postings.append((income.id, -fee))
+    if drift:
+        hot = ledger.get_system_account(session, asset_id=asset_id, kind=AccountKind.HOT_WALLET)
+        postings.append((hot.id, -drift))
 
     entry = ledger.post_entry(
         session,
@@ -487,6 +548,14 @@ def post_settle_entry(session: Session, withdrawal: Withdrawal) -> JournalEntry:
         memo=f"withdrawal {withdrawal.id} confirmed",
     )
     withdrawal.settle_entry_id = entry.id
+    if drift:
+        logger.info(
+            "withdrawal.fee_drift_booked",
+            withdrawal_id=str(withdrawal.id),
+            estimated=estimated_wallet_fee,
+            actual=wallet_fee,
+            drift=drift,
+        )
     return entry
 
 
@@ -623,12 +692,48 @@ def _advance(withdrawal: Withdrawal, target: WithdrawalStatus) -> bool:
     return _transition(withdrawal, target)
 
 
+def settlement_fee(
+    backend: object, payout: BackendPayout, *, settings: Settings | None = None
+) -> int | None:
+    """What the rail really charged for this payout, when it can say.
+
+    Called by the two places that hold a backend — Job B and the webhook
+    handler — rather than by `apply_payout_state`, deliberately. This makes an
+    HTTP request, and the transition function runs inside the transaction that
+    writes the settle entry; a network call in there would hold a row lock for
+    the length of somebody else's timeout.
+
+    None means "book the estimate", and it arrives for two very different
+    reasons. A backend that cannot report fees is ordinary and silent. A
+    backend that can report them and did not answer is a real fee about to go
+    unrecorded, so that one alerts.
+    """
+    if payout.state is not BackendPayoutState.COMPLETED:
+        return None
+    if not isinstance(backend, ReportsActualFee):
+        return None
+    try:
+        return backend.actual_wallet_fee(payout)
+    except BTCPayError as exc:
+        notify(
+            Severity.WARNING,
+            AlertCode.WITHDRAWAL_FEE_UNBOOKED,
+            f"payout {payout.id} completed but its network fee could not be read "
+            f"({exc}); the estimate was booked instead, so custody for this asset "
+            "will read short by the difference with no entry explaining it",
+            settings=settings,
+            payout=payout.id,
+        )
+        return None
+
+
 def apply_payout_state(
     session: Session,
     *,
     withdrawal_id: uuid.UUID,
     payout: BackendPayout,
     actor: str = AUTO_ACTOR,
+    actual_wallet_fee: int | None = None,
 ) -> Withdrawal:
     """Bring a withdrawal in line with BTCPay's view of its payout.
 
@@ -636,9 +741,13 @@ def apply_payout_state(
     the same reason `apply_invoice_state` is: two triggers of one function
     cannot disagree.
 
+    `actual_wallet_fee` is what the rail charged, from `settlement_fee`. It is
+    passed in rather than fetched here so this function stays free of network
+    calls; None books the estimate.
+
     A `Cancelled` payout moves the row to `failed` and stops. It does **not**
     release the hold, because from `submitted` onward a release could pay the
-    user twice — that decision belongs to an admin with an attestation.
+    user twice — that decision needs an attestation.
     """
     withdrawal = lock(session, withdrawal_id)
     asset = get_asset(session, withdrawal.asset_id, require_enabled=False)
@@ -666,7 +775,7 @@ def apply_payout_state(
         return withdrawal
 
     if target == WithdrawalStatus.CONFIRMED and withdrawal.settle_entry_id is None:
-        post_settle_entry(session, withdrawal)
+        post_settle_entry(session, withdrawal, actual_wallet_fee=actual_wallet_fee)
 
     changed = _advance(withdrawal, target)
     withdrawal.updated_at = datetime.now(UTC)
@@ -775,6 +884,43 @@ def reject(
         session,
         event_type=events.WITHDRAWAL_FAILED,
         payload=_event_payload(withdrawal, asset, reason=reason or "rejected by an admin"),
+    )
+    return withdrawal
+
+
+#: Actors for the two machine-generated attestations. Distinct strings, so
+#: `released_by` on the row says which mechanism decided rather than just
+#: "auto" — the two have very different evidence behind them.
+ACTOR_NEVER_SUBMITTED = "auto:never_submitted"
+ACTOR_DEFINITIVE_FAILURE = "auto:definitive_failure_proof"
+
+
+def auto_release_with_proof(
+    session: Session, withdrawal: Withdrawal, *, actor: str, proof: str
+) -> Withdrawal:
+    """Release a hold on a machine-checked proof that nothing was sent.
+
+    The narrow exception to "a release after submission needs a human". Read
+    "Release legality" in the module docstring before adding a third caller:
+    the two that exist are allowed because the code genuinely checked the
+    world, not because waiting for an admin was inconvenient.
+
+    The proof goes into `release_attestation` — the same column an admin's
+    words go into — because an auditor asks the same question either way: on
+    what basis was this hold given back?
+    """
+    asset = get_asset(session, withdrawal.asset_id, require_enabled=False)
+    release_hold(session, withdrawal, actor=actor, attestation=proof)
+    events.emit(
+        session,
+        event_type=events.WITHDRAWAL_FAILED,
+        payload=_event_payload(withdrawal, asset, reason=proof),
+    )
+    logger.info(
+        "withdrawal.auto_released",
+        withdrawal_id=str(withdrawal.id),
+        actor=actor,
+        proof=proof,
     )
     return withdrawal
 

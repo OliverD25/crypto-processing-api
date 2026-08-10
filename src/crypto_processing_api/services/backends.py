@@ -18,6 +18,13 @@ would be a second place to look when money goes missing.
 beside it. Crash recovery is not a BTCPay convenience — any backend that can
 create a payout can crash after creating one, and a backend with no answer to
 "did I already send this?" cannot safely be retried.
+
+Two further protocols are **capabilities, not requirements**: `ReportsActualFee`
+and `ProvesDefinitiveFailure`. A rail either can answer those questions or it
+cannot, and folding them into `AutomatedWithdrawalBackend` would force every
+backend — including forks' — to grow methods that would have to lie. They are
+`runtime_checkable`, so the money path asks each backend once and takes the
+plain answer when it cannot.
 """
 
 from __future__ import annotations
@@ -26,11 +33,16 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
-from crypto_processing_api.core.amounts import from_units
+from crypto_processing_api.core.addresses import AddressError, decode_bolt11
+from crypto_processing_api.core.amounts import from_units, msat_to_sat_round_up
 from crypto_processing_api.core.redaction import get_logger
-from crypto_processing_api.gateway.btcpay_client import BTCPayGateway
+from crypto_processing_api.gateway.btcpay_client import (
+    BTCPayError,
+    BTCPayGateway,
+    BTCPayNotFound,
+)
 from crypto_processing_api.gateway.btcpay_models import Payout
 from crypto_processing_api.gateway.trongrid import TronGridGateway, TronTransfer
 from crypto_processing_api.ledger.models import Withdrawal
@@ -39,6 +51,11 @@ logger = get_logger(__name__)
 
 CPAPI_VERSION = 1
 BACKEND_MANUAL_TRON = "manual_tron"
+
+#: Lightning payment states that mean no money left the node and none can.
+#: `Pending` and `Complete` are deliberately absent: both are compatible with
+#: the user being paid, and releasing a hold on either is a double-pay.
+LIGHTNING_DEFINITELY_UNPAID = frozenset({"Failed"})
 
 
 class BackendPayoutState(StrEnum):
@@ -137,6 +154,42 @@ class OperatorWithdrawalBackend(Protocol):
     def confirmations(self, block_number: int | None) -> int: ...
 
 
+@runtime_checkable
+class ReportsActualFee(Protocol):
+    """A backend that can say what the rail really charged for one payout.
+
+    Optional because most rails cannot. On chain the fee is fixed when the
+    payout is created and BTCPay batches several payouts into one transaction,
+    so there is no per-withdrawal number to ask for. On Lightning the routing
+    fee is unknowable in advance and knowable exactly afterwards, which is the
+    case this exists for.
+
+    Returns smallest units, or None when the rail has no number to give.
+    Raises the rail's own transport error when it could not be asked — the
+    caller distinguishes "no fee" from "no answer", and books the estimate with
+    an alert in the second case.
+    """
+
+    def actual_wallet_fee(self, payout: BackendPayout) -> int | None: ...
+
+
+@runtime_checkable
+class ProvesDefinitiveFailure(Protocol):
+    """A backend that can prove a payout's money never left.
+
+    The proof is a sentence, stored verbatim as the release attestation, so the
+    row records *why* a machine was allowed to do what normally needs a human.
+
+    Returning None must always be safe: it means "not proven", and the hold
+    then waits for an admin exactly as it does today. Anything short of
+    certainty is None — a timeout, an unreachable node, a status the rail
+    cannot pin down. The bar is that the rail has actively said the payment
+    does not exist, not that we failed to find it.
+    """
+
+    def definitive_failure_proof(self, payout: BackendPayout) -> str | None: ...
+
+
 def payout_metadata(withdrawal: Withdrawal) -> dict[str, object]:
     """The correlation key, verified live against BTCPay 2.4.2.
 
@@ -213,6 +266,109 @@ class BtcpayPayoutBackend:
                 unclaimed.append(payout)
 
         return mine, unclaimed
+
+
+class LightningPayoutBackend(BtcpayPayoutBackend):
+    """BTC_LN withdrawals: the same Greenfield payouts, plus what LN can answer.
+
+    Every method the money path needs is inherited unchanged. That is the
+    milestone's central claim rather than a convenience: `initiate`,
+    `poll_status`, `cancel` and `find_for_withdrawal` are byte-for-byte the
+    on-chain ones, and the conformance suite runs against this class unmodified
+    to say so.
+
+    What is added are two things Greenfield will only tell you if you ask a
+    second endpoint, and both are about the Lightning node rather than about
+    payouts:
+
+    - the routing fee, because a completed Lightning payout reports its face
+      value in both amount fields and the fee appears nowhere on it;
+    - whether a payment ever left, because a payout that never routed carries
+      no proof at all.
+
+    Both start from the payment hash, and the payment hash is read out of the
+    BOLT11 in `destination` rather than out of the payout. The invoice is the
+    authoritative, checksum-protected source and it is present in every state —
+    including the stuck one, where the payout has nothing.
+    """
+
+    def __init__(
+        self,
+        gateway: BTCPayGateway,
+        *,
+        payout_method_id: str,
+        crypto_code: str,
+        network: str,
+    ) -> None:
+        super().__init__(gateway, payout_method_id=payout_method_id)
+        self.crypto_code = crypto_code
+        self.network = network
+
+    def payment_hash(self, payout: BackendPayout) -> str | None:
+        try:
+            return decode_bolt11(payout.destination, network=self.network).payment_hash
+        except AddressError as exc:
+            # Only reachable if BTCPay echoed back something that is not the
+            # invoice we sent, so it is worth a log rather than a shrug.
+            logger.error("lightning.destination_not_a_bolt11", payout=payout.id, error=str(exc))
+            return None
+
+    def actual_wallet_fee(self, payout: BackendPayout) -> int | None:
+        payment_hash = self.payment_hash(payout)
+        if payment_hash is None:
+            return None
+        payment = self.gateway.get_lightning_payment(self.crypto_code, payment_hash)
+        if payment.fee_amount is None:
+            return None
+        try:
+            millisatoshi = int(str(payment.fee_amount))
+        except ValueError:
+            logger.error(
+                "lightning.unparseable_fee",
+                payout=payout.id,
+                fee_amount=str(payment.fee_amount),
+            )
+            return None
+        return msat_to_sat_round_up(millisatoshi)
+
+    def definitive_failure_proof(self, payout: BackendPayout) -> str | None:
+        payment_hash = self.payment_hash(payout)
+        if payment_hash is None:
+            return None
+        try:
+            payment = self.gateway.get_lightning_payment(self.crypto_code, payment_hash)
+        except BTCPayNotFound:
+            # A 404 is also what a store with no Lightning node returns, and a
+            # configuration fault must never read as proof that money stayed
+            # put. Ask the node something it has to be able to answer first.
+            if not self._node_is_answering():
+                return None
+            return (
+                f"the Lightning node has no record of payment {payment_hash}: BTCPay "
+                f"answered 404 for it after payout {payout.id} was cancelled, and the "
+                "node itself is reachable. No HTLC was ever offered, so the funds did "
+                "not leave."
+            )
+        except BTCPayError as exc:
+            logger.warning("lightning.failure_proof_unavailable", payout=payout.id, error=str(exc))
+            return None
+
+        if payment.status not in LIGHTNING_DEFINITELY_UNPAID:
+            logger.info("lightning.failure_not_definitive", payout=payout.id, status=payment.status)
+            return None
+        return (
+            f"the Lightning node reports payment {payment_hash} as {payment.status} after "
+            f"payout {payout.id} was cancelled: every route attempt failed and no HTLC "
+            "settled, so the funds did not leave."
+        )
+
+    def _node_is_answering(self) -> bool:
+        try:
+            self.gateway.get_lightning_balance(self.crypto_code)
+        except BTCPayError as exc:
+            logger.warning("lightning.node_unreachable", error=str(exc))
+            return False
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,9 +520,16 @@ def _assert_protocols() -> None:
     """Make mypy check what nothing checked before.
 
     `ManualTronBackend` never satisfied the old single protocol, and no
-    annotation ever forced the question. These two lines are the whole point of
+    annotation ever forced the question. These lines are the whole point of
     splitting it: they are checked at type-check time and cost nothing at
     runtime.
+
+    The capability lines matter for a different reason. `runtime_checkable`
+    only checks that a method exists, so `isinstance` at the call site cannot
+    catch a wrong signature. These do.
     """
     _automated: type[AutomatedWithdrawalBackend] = BtcpayPayoutBackend
     _operator: type[OperatorWithdrawalBackend] = ManualTronBackend
+    _lightning_automated: type[AutomatedWithdrawalBackend] = LightningPayoutBackend
+    _reports_fee: type[ReportsActualFee] = LightningPayoutBackend
+    _proves_failure: type[ProvesDefinitiveFailure] = LightningPayoutBackend

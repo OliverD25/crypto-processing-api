@@ -27,6 +27,8 @@ from crypto_processing_api.gateway.btcpay_models import (
     FeeRate,
     Invoice,
     InvoicePaymentMethod,
+    LightningBalance,
+    LightningPayment,
     Payout,
     StorePaymentMethod,
     WalletOverview,
@@ -144,6 +146,10 @@ class BTCPayGateway(Protocol):
     def get_wallet_transactions(
         self, payment_method_id: str, *, skip: int = 0, limit: int = 100
     ) -> list[WalletTransaction]: ...
+
+    def get_lightning_balance(self, crypto_code: str) -> LightningBalance: ...
+
+    def get_lightning_payment(self, crypto_code: str, payment_hash: str) -> LightningPayment: ...
 
     def redeliver_webhook(self, webhook_id: str, delivery_id: str) -> None: ...
 
@@ -327,6 +333,28 @@ class BTCPayClient:
             params={"blockTarget": block_target},
         )
         return float(FeeRate.model_validate(payload).fee_rate)
+
+    # -- lightning --------------------------------------------------------
+    #
+    # These two take a crypto code ("BTC"), not a payment method id ("BTC-LN").
+    # Both need `btcpay.store.canuselightningnode`, which a deployment only
+    # grants when it has turned Lightning on — see docs/security.md.
+
+    def get_lightning_balance(self, crypto_code: str) -> LightningBalance:
+        payload = self._get(f"/api/v1/stores/{self.store_id}/lightning/{crypto_code}/balance")
+        return LightningBalance.model_validate(payload)
+
+    def get_lightning_payment(self, crypto_code: str, payment_hash: str) -> LightningPayment:
+        """One outgoing payment, or `BTCPayNotFound` if the node has none.
+
+        The 404 is not an error condition here — it is the answer. A node with
+        no record of a payment hash never sent that payment, which is what lets
+        a cancelled payout's hold be released without a human.
+        """
+        payload = self._get(
+            f"/api/v1/stores/{self.store_id}/lightning/{crypto_code}/payments/{payment_hash}"
+        )
+        return LightningPayment.model_validate(payload)
 
     # -- payouts ----------------------------------------------------------
 

@@ -334,6 +334,34 @@ def profile_for(asset_id: str) -> AssetProfile:
     return get_profile(get_registry(), asset_id)
 
 
+def automated_backend_for(
+    asset: Asset,
+    *,
+    gateway: BTCPayGateway,
+    settings: Settings,
+    tron: TronGridGateway | None = None,
+) -> AutomatedWithdrawalBackend:
+    """The backend that sends this asset, built from its profile.
+
+    The three workers that submit and poll payouts used to construct
+    `BtcpayPayoutBackend` themselves from `asset.btcpay_payment_method`. That
+    worked while every automated asset was the same class, and it quietly
+    undid the registry the moment one was not: a Lightning withdrawal would
+    have been submitted and polled by the on-chain backend, which is correct in
+    every method it has and missing both of the ones that keep a routing fee on
+    the books.
+    """
+    profile = profile_for(asset.id)
+    if profile.automated_backend is None:
+        raise UnknownAsset(
+            f"asset {asset.id} has no automated backend; its withdrawals are "
+            f"{profile.sweep}-swept and nothing should be asking a worker to send them"
+        )
+    return profile.automated_backend(
+        RegistryContext(settings=settings, asset=asset, gateway=gateway, tron=tron)
+    )
+
+
 def get_profile(registry: dict[str, AssetProfile], asset_id: str) -> AssetProfile:
     profile = registry.get(asset_id)
     if profile is None:
