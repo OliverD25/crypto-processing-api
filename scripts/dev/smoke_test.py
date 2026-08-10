@@ -23,7 +23,6 @@ late drill waits for real wall-clock expiry.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import subprocess
 import sys
@@ -278,17 +277,22 @@ def drill_replay(api: Api, generated: dict[str, str]) -> None:
     assert_credited(body, amount)
 
     webhook_id = generated["BTCPAY_WEBHOOK_ID"]
-    token = base64.b64encode(
-        f"{generated['BTCPAY_ADMIN_EMAIL']}:{generated['BTCPAY_ADMIN_PASSWORD']}".encode()
-    ).decode()
+    # The bootstrap key, not the admin's password: BTCPay only accepts Basic
+    # auth for an account younger than five minutes, so anything that has to
+    # keep working uses a key.
     btcpay = httpx.Client(
         base_url=generated["BTCPAY_PUBLIC_URL"],
-        headers={"Authorization": f"Basic {token}"},
+        headers={"Authorization": f"token {generated['BTCPAY_BOOTSTRAP_KEY']}"},
         timeout=30.0,
     )
-    deliveries = btcpay.get(f"/api/v1/webhooks/{webhook_id}/deliveries").json()
-    if not deliveries:
-        raise SmokeFailure("BTCPay recorded no webhook deliveries at all")
+    response = btcpay.get(f"/api/v1/webhooks/{webhook_id}/deliveries")
+    if response.status_code != 200:
+        raise SmokeFailure(
+            f"could not list webhook deliveries: {response.status_code} {response.text[:200]}"
+        )
+    deliveries = response.json()
+    if not isinstance(deliveries, list) or not deliveries:
+        raise SmokeFailure(f"BTCPay recorded no webhook deliveries: {deliveries!r}")
 
     replayed = 0
     for delivery in deliveries[:5]:

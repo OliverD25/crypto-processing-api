@@ -170,6 +170,11 @@ services:
     environment: *api_env
     env_file: *api_env_file
     command: ["python", "-m", "crypto_processing_api.workers.runner"]
+    # The image's healthcheck probes /healthz, which only the api serves. The
+    # worker has no HTTP surface, so inheriting it just reports "unhealthy"
+    # forever and trains everyone to ignore the column.
+    healthcheck:
+      disable: true
 
 volumes:
   btcpay_postgres:
