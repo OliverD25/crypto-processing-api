@@ -19,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     SmallInteger,
     String,
     Text,
@@ -252,6 +253,9 @@ class Deposit(Base):
     address: Mapped[str | None] = mapped_column(Text)
     checkout_link: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How long BTCPay keeps attributing payments to this invoice. Polling past
+    # it is meaningless, so the sweep window is aligned to it.
+    monitoring_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_payment_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -266,6 +270,11 @@ class Deposit(Base):
             "ix_deposits_active",
             "status",
             postgresql_where=text("status IN ('creating','pending','confirming','review')"),
+        ),
+        Index(
+            "ix_deposits_monitoring",
+            "monitoring_expires_at",
+            postgresql_where=text("status IN ('settled','expired','review')"),
         ),
     )
 
@@ -411,6 +420,36 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (CheckConstraint("scope IN ('readwrite','admin')", name="api_keys_scope"),)
+
+
+class WalletTxoAlert(Base):
+    """A wallet receive that matches no deposit payment.
+
+    The only detector for coins sent to an address BTCPay has stopped watching.
+    Job C's aggregate check cannot find these: a surplus in the wallet reads as
+    healthy.
+    """
+
+    __tablename__ = "wallet_txo_alerts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    asset_id: Mapped[str] = mapped_column(Text, ForeignKey("assets.id"), nullable=False)
+    txid: Mapped[str] = mapped_column(Text, nullable=False)
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    confirmations: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'open'"))
+    note: Mapped[str | None] = mapped_column(Text)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('open','resolved','ignored')", name="wallet_txo_alerts_status"),
+        UniqueConstraint("asset_id", "txid", name="ux_wallet_txo_alert"),
+        Index("ix_wallet_txo_open", "detected_at", postgresql_where=text("status = 'open'")),
+    )
 
 
 class OutboundEvent(Base):
