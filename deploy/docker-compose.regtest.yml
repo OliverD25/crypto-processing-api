@@ -137,6 +137,12 @@ services:
       LOG_JSON: "false"
       DATABASE_URL: postgresql://cpapi:cpapi@postgres-ledger:5432/cpapi
       BTCPAY_URL: http://btcpayserver:49392
+      # Which network withdrawal destinations are validated against. Note the
+      # name collision: bitcoind's image reads BITCOIN_NETWORK too, so this has
+      # to be set on the api and worker explicitly rather than inherited.
+      BITCOIN_NETWORK: regtest
+      # No outbound calls from a local stack.
+      MEMPOOL_SPACE_URL: ""
       # Short enough that the late-payment drill does not take an afternoon,
       # long enough that an ordinary deposit is never racing the clock.
       DEPOSIT_INVOICE_EXPIRY_MIN_BTC: "2"

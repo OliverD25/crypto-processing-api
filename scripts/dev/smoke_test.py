@@ -122,6 +122,51 @@ class Api:
         response.raise_for_status()
         return dict(response.json())
 
+    def create_withdrawal(
+        self, user: str, sats: int, destination: str, idempotency_key: str
+    ) -> dict[str, Any]:
+        response = self.client.post(
+            "/v1/withdrawals",
+            json={
+                "external_user_id": user,
+                "asset": "BTC",
+                "amount": str(sats),
+                "destination_address": destination,
+            },
+            headers={"Idempotency-Key": idempotency_key},
+        )
+        if response.status_code != 201:
+            raise SmokeFailure(f"withdrawal request failed: {response.status_code} {response.text}")
+        return dict(response.json())
+
+    def withdrawal(self, withdrawal_id: str) -> dict[str, Any]:
+        response = self.client.get(f"/v1/withdrawals/{withdrawal_id}")
+        response.raise_for_status()
+        return dict(response.json())
+
+    def admin_withdrawals(self, status: str) -> list[dict[str, Any]]:
+        response = self.client.get(f"/v1/admin/withdrawals?status={status}")
+        response.raise_for_status()
+        return list(response.json()["withdrawals"])
+
+    def approve(self, withdrawal_id: str) -> dict[str, Any]:
+        response = self.client.post(f"/v1/admin/withdrawals/{withdrawal_id}/approve", json={})
+        if response.status_code != 200:
+            raise SmokeFailure(f"approve failed: {response.status_code} {response.text}")
+        return dict(response.json())
+
+    def ledger_balances(self, user: str) -> dict[str, int]:
+        """Read the ledger directly: there is no balances endpoint before M5."""
+        available = psql(
+            "SELECT COALESCE(-balance, 0) FROM accounts WHERE kind = 'user_available' "
+            f"AND external_user_id = '{user}' AND asset_id = 'BTC'"
+        )
+        held = psql(
+            "SELECT COALESCE(-balance, 0) FROM accounts WHERE kind = 'user_hold' "
+            f"AND external_user_id = '{user}' AND asset_id = 'BTC'"
+        )
+        return {"available": int(available or 0), "held": int(held or 0)}
+
     def review_queue(self) -> list[dict[str, Any]]:
         response = self.client.get("/v1/admin/deposits/review")
         response.raise_for_status()
@@ -199,6 +244,51 @@ def wait_for_api() -> None:
             return False
 
     wait_until(healthy, timeout=120, description="the api to answer /healthz")
+
+
+def psql(statement: str) -> str:
+    """Run one query against the regtest ledger database."""
+    return run(
+        "docker",
+        "compose",
+        "-f",
+        str(COMPOSE_FILE),
+        "exec",
+        "-T",
+        "postgres-ledger",
+        "psql",
+        "-U",
+        "cpapi",
+        "-d",
+        "cpapi",
+        "-t",
+        "-A",
+        "-c",
+        statement,
+    )
+
+
+def destination_received(address: str) -> Decimal:
+    total = bitcoin_cli(f"-rpcwallet={WALLET}", "getreceivedbyaddress", address, "0")
+    return Decimal(str(total))
+
+
+def wait_for_withdrawal(
+    api: Api, withdrawal_id: str, status: str, *, timeout: float = 300
+) -> dict[str, Any]:
+    def check() -> dict[str, Any] | None:
+        body = api.withdrawal(withdrawal_id)
+        if body["status"] == status:
+            return body
+        if body["status"] in ("rejected", "refunded", "failed") and status != body["status"]:
+            raise SmokeFailure(
+                f"withdrawal {withdrawal_id} ended in {body['status']}: {body['failure_reason']}"
+            )
+        return None
+
+    return wait_until(  # type: ignore[no-any-return]
+        check, timeout=timeout, description=f"withdrawal {withdrawal_id} to reach {status}"
+    )
 
 
 def pay(address: str, amount_btc: Decimal) -> str:
@@ -347,7 +437,178 @@ def drill_late(api: Api) -> None:
     log(f"  admin resolve credited exactly {amount:.8f} BTC")
 
 
-DRILLS = ("deposit", "outage", "replay", "late")
+def drill_withdraw(api: Api) -> None:
+    log("drill: withdraw — below the limit, auto-approved, exact to the satoshi")
+    deposit_amount = Decimal("0.5")
+    # Below the seeded 500_000 sat auto-approval limit, so no admin is needed.
+    withdraw_sats = 400_000
+
+    deposit = api.create_deposit("wd-user", f"wd-{time.time()}")
+    pay(deposit["address"], deposit_amount)
+    mine(2)
+    wait_for_status(api, deposit["deposit_id"], "settled")
+
+    destination = str(bitcoin_cli(f"-rpcwallet={WALLET}", "getnewaddress"))
+    before = destination_received(destination)
+    # A delta, not an absolute: the drill is re-runnable and the user keeps
+    # whatever earlier runs left them.
+    ledger_before = api.ledger_balances("wd-user")
+
+    created = api.create_withdrawal("wd-user", withdraw_sats, destination, f"w-{time.time()}")
+    if created["status"] != "approved":
+        raise SmokeFailure(f"expected auto-approval, got {created['status']}")
+    log(f"  withdrawal {created['withdrawal_id']} auto-approved")
+
+    # The payout has to be mined before BTCPay will call it Completed, and the
+    # regtest chain only moves when we tell it to.
+    wait_for_withdrawal(api, created["withdrawal_id"], "broadcast", timeout=180)
+    mine(2)
+    confirmed = wait_for_withdrawal(api, created["withdrawal_id"], "confirmed", timeout=300)
+    fee = int(Decimal(confirmed["fee"]) * SATS)
+    net = int(Decimal(confirmed["amount_net"]) * SATS)
+    if net != withdraw_sats - fee:
+        raise SmokeFailure(f"net {net} != gross {withdraw_sats} - fee {fee}")
+    if not confirmed["txid"]:
+        raise SmokeFailure("confirmed without a txid")
+    short_txid = confirmed["txid"][:16]
+    log(f"  confirmed: gross {withdraw_sats}, fee {fee}, net {net}, txid {short_txid}...")
+
+    time.sleep(3)
+    received = destination_received(destination) - before
+    expected = Decimal(net) / SATS
+    if received != expected:
+        raise SmokeFailure(f"destination received {received} BTC, expected {expected}")
+    log(f"  destination received exactly {received} BTC")
+
+    balances = api.ledger_balances("wd-user")
+    expected_available = ledger_before["available"] - withdraw_sats
+    if balances["available"] != expected_available:
+        raise SmokeFailure(f"available is {balances['available']}, expected {expected_available}")
+    if balances["held"] != ledger_before["held"]:
+        raise SmokeFailure(
+            f"held moved from {ledger_before['held']} to {balances['held']}; this "
+            "withdrawal's hold should have been extinguished by the settle entry"
+        )
+    log(f"  user debited exactly {withdraw_sats} sat, this hold fully released")
+
+
+def drill_approval(api: Api) -> None:
+    log("drill: approval — above the limit waits for an admin, then completes")
+    deposit = api.create_deposit("approve-user", f"ap-{time.time()}")
+    pay(deposit["address"], Decimal("0.2"))
+    mine(2)
+    wait_for_status(api, deposit["deposit_id"], "settled")
+
+    destination = str(bitcoin_cli(f"-rpcwallet={WALLET}", "getnewaddress"))
+    # The seeded auto limit is 500_000 sat.
+    created = api.create_withdrawal("approve-user", 900_000, destination, f"ap-w-{time.time()}")
+    if created["status"] != "pending_approval":
+        raise SmokeFailure(f"expected pending_approval, got {created['status']}")
+    log(f"  queued: {created.get('approval_reason')}")
+
+    queued = api.admin_withdrawals("pending_approval")
+    if created["withdrawal_id"] not in [w["withdrawal_id"] for w in queued]:
+        raise SmokeFailure("the withdrawal is not in the admin queue")
+
+    api.approve(created["withdrawal_id"])
+    wait_for_withdrawal(api, created["withdrawal_id"], "broadcast", timeout=180)
+    mine(2)
+    confirmed = wait_for_withdrawal(api, created["withdrawal_id"], "confirmed", timeout=300)
+    log(f"  approved and confirmed, txid {confirmed['txid'][:16]}...")
+
+
+def drill_crash(api: Api, generated: dict[str, str]) -> None:
+    log("drill: crash — payout created, status never written, no double send")
+
+    deposit = api.create_deposit("crash-user", f"cr-{time.time()}")
+    pay(deposit["address"], Decimal("0.2"))
+    mine(2)
+    wait_for_status(api, deposit["deposit_id"], "settled")
+
+    destination = str(bitcoin_cli(f"-rpcwallet={WALLET}", "getnewaddress"))
+    before = destination_received(destination)
+
+    # Stop the worker so nothing submits behind our back, then reproduce the
+    # crash window by hand: create the payout in BTCPay exactly as the
+    # submitter would, and never record it.
+    log("  stopping the worker")
+    compose("stop", "worker")
+    try:
+        created = api.create_withdrawal("crash-user", 400_000, destination, f"cr-w-{time.time()}")
+        withdrawal_id = created["withdrawal_id"]
+
+        btcpay = httpx.Client(
+            base_url=generated["BTCPAY_PUBLIC_URL"],
+            headers={"Authorization": f"token {generated['BTCPAY_API_KEY']}"},
+            timeout=60.0,
+        )
+        response = btcpay.post(
+            f"/api/v1/stores/{generated['BTCPAY_STORE_ID']}/payouts",
+            json={
+                "destination": destination,
+                "amount": "0.00397000",
+                "payoutMethodId": "BTC-CHAIN",
+                "approved": True,
+                "metadata": {"cpapi": True, "withdrawal_id": withdrawal_id},
+            },
+        )
+        if response.status_code >= 400:
+            raise SmokeFailure(f"could not stage the crash: {response.text[:300]}")
+        payout_id = response.json()["id"]
+        log(f"  payout {payout_id} created with no local record")
+
+        # Put the row where a crash would have left it: submitting, no ref.
+        result = psql(
+            "UPDATE withdrawals SET status = 'submitting', "
+            "updated_at = now() - interval '1 hour' WHERE id = '" + withdrawal_id + "'"
+        )
+        staged = psql(
+            "SELECT status || ',' || COALESCE(backend_ref, 'none') FROM withdrawals "
+            "WHERE id = '" + withdrawal_id + "'"
+        )
+        log(f"  staged the crash window: {result.strip()} -> {staged.strip()}")
+        if not staged.startswith("submitting,none"):
+            raise SmokeFailure(f"could not stage the crash window: row is {staged!r}")
+    finally:
+        log("  starting the worker")
+        compose("start", "worker")
+
+    def resolved() -> dict[str, Any] | None:
+        body = api.withdrawal(withdrawal_id)
+        return body if body["status"] in ("submitted", "broadcast", "confirmed") else None
+
+    # The stuck-resolution job runs on the withdrawal sweep interval, so give
+    # it a couple of cycles.
+    body = wait_until(
+        resolved, timeout=420, description="reconciliation to adopt the payout", interval=5
+    )
+    log(f"  reconciliation adopted the payout: status {body['status']}")
+
+    payouts = httpx.get(
+        f"{generated['BTCPAY_PUBLIC_URL']}/api/v1/stores/{generated['BTCPAY_STORE_ID']}/payouts",
+        headers={"Authorization": f"token {generated['BTCPAY_API_KEY']}"},
+        timeout=30,
+    ).json()
+    mine_ours = [
+        p for p in payouts if (p.get("metadata") or {}).get("withdrawal_id") == withdrawal_id
+    ]
+    if len(mine_ours) != 1:
+        raise SmokeFailure(
+            f"expected exactly one payout for this withdrawal, found {len(mine_ours)}"
+        )
+    log("  exactly one payout exists: no double send")
+
+    wait_for_withdrawal(api, withdrawal_id, "broadcast", timeout=180)
+    mine(2)
+    confirmed = wait_for_withdrawal(api, withdrawal_id, "confirmed", timeout=300)
+    received = destination_received(destination) - before
+    expected = Decimal(confirmed["amount_net"])
+    if received != expected:
+        raise SmokeFailure(f"destination received {received}, expected {expected}")
+    log(f"  destination received exactly {received} BTC, once")
+
+
+DRILLS = ("deposit", "outage", "replay", "late", "withdraw", "approval", "crash")
 
 
 def main() -> int:
@@ -364,7 +625,7 @@ def main() -> int:
     if "all" in selected:
         selected = set(DRILLS)
     elif "fast" in selected:
-        selected = {"deposit", "outage", "replay"}
+        selected = {"deposit", "outage", "replay", "withdraw", "approval", "crash"}
 
     generated = read_generated_env()
     wait_for_api()
@@ -380,6 +641,12 @@ def main() -> int:
         drill_replay(api, generated)
     if "late" in selected:
         drill_late(api)
+    if "withdraw" in selected:
+        drill_withdraw(api)
+    if "approval" in selected:
+        drill_approval(api)
+    if "crash" in selected:
+        drill_crash(api, generated)
 
     log(f"all drills passed: {', '.join(sorted(selected))}")
     return 0

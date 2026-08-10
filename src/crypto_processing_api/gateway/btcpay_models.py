@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 InvoiceStatus = Literal["New", "Processing", "Expired", "Invalid", "Settled"]
 InvoiceAdditionalStatus = Literal[
@@ -126,19 +126,49 @@ PayoutState = Literal["AwaitingApproval", "AwaitingPayment", "InProgress", "Comp
 class PayoutPaymentProof(TransportModel):
     """How BTCPay says a payout was paid.
 
-    `proofType` is the only guaranteed field; everything else is per-type. For
-    on-chain payouts the transaction id arrives as `id`, and older or plugin
-    payout handlers have been seen using `link`, so both are read.
+    The swagger documents `proofType`, `id` and `link`. The running 2.4.2 sends
+    PascalCase for the on-chain handler:
+
+        {"Accounted": true, "ProofType": "PayoutTransactionOnChainBlob",
+         "Candidates": ["2c31..."], "TransactionId": "2c31..."}
+
+    The fact sheet flagged this shape as version-dependent and it is. Both
+    spellings are accepted, because reading the wrong one means a confirmed
+    withdrawal with no transaction id — nothing to show the user and nothing to
+    check on chain.
     """
 
-    proof_type: str | None = Field(default=None, alias="proofType")
+    proof_type: str | None = None
     id: str | None = None
     link: str | None = None
+    transaction_id: str | None = None
+    candidates: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_either_casing(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        mapping = {
+            "prooftype": "proof_type",
+            "transactionid": "transaction_id",
+            "id": "id",
+            "link": "link",
+            "candidates": "candidates",
+        }
+        normalised: dict[str, Any] = {}
+        for key, item in value.items():
+            normalised[mapping.get(str(key).lower(), str(key))] = item
+        return normalised
 
     @property
     def txid(self) -> str | None:
+        if self.transaction_id:
+            return self.transaction_id
         if self.id:
             return self.id
+        if self.candidates:
+            return self.candidates[0]
         if self.link:
             # Block explorer links end in the transaction id.
             return self.link.rstrip("/").rsplit("/", 1)[-1] or None

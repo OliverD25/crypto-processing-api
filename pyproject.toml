@@ -85,6 +85,9 @@ extend-immutable-calls = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B008", "S105", "S106", "S107", "S311"]
+# S608: the dev smoke test builds throwaway psql queries from values it
+# generated itself, against a regtest database it also created.
+"scripts/dev/**" = ["S105", "S106", "S608"]
 "scripts/**" = ["S105", "S106"]
 "migrations/versions/*" = ["E501"]
 

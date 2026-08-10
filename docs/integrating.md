@@ -3,7 +3,7 @@
 For developers of the platform backend that calls this service. It assumes
 nothing about your stack beyond HTTP and JSON.
 
-> **Status: M2.** Deposits work end to end. Withdrawals arrive in M3, USDT in
+> **Status: M3.** Deposits and BTC withdrawals work end to end. USDT arrives in
 > M4, outbound webhooks in M5. Endpoints described here are stable; anything not
 > described here does not exist yet.
 
@@ -208,6 +208,150 @@ The same reasoning applies one level up, to you:
   correction, if one is ever needed, is a new journal entry with its own
   record.
 
+## Withdrawals
+
+```http
+POST /v1/withdrawals
+Authorization: Bearer cpk_live_...
+Idempotency-Key: <uuid>
+Content-Type: application/json
+
+{
+  "external_user_id": "user-42",
+  "asset": "BTC",
+  "amount": "400000",
+  "destination_address": "bc1q..."
+}
+```
+
+```json
+{
+  "withdrawal_id": "019febcb-37ed-7388-a6a2-03b6a9a3d010",
+  "status": "approved",
+  "approval_mode": "auto",
+  "destination_address": "bc1q...",
+  "amount_gross": "0.00400000",
+  "fee": null,
+  "amount_net": null,
+  "txid": null,
+  "created_at": "2026-08-10T13:11:02+00:00"
+}
+```
+
+`amount` is the **gross** amount in integer smallest units: what leaves the
+user's balance. The fee comes out of it, so the destination receives less.
+
+### The hold is placed before you get an answer
+
+By the time this endpoint returns, the money has already moved from the user's
+available balance to a hold. That is deliberate — the balance check, the limit
+decision and the reservation happen in one database transaction, so two
+simultaneous requests cannot both pass a check that only one of them can
+afford.
+
+Which means: **a `201` with `status: "pending_approval"` is not a rejection.**
+The funds are reserved and an operator has to look at it. Only a 4xx means
+nothing was reserved.
+
+### Statuses
+
+| Status | Meaning | Money |
+|---|---|---|
+| `pending_approval` | waiting for an operator | held |
+| `approved` | cleared, waiting for the submitter | held |
+| `submitting` | being handed to BTCPay right now | held |
+| `submitted` | BTCPay accepted the payout | held |
+| `broadcast` | on chain, `txid` is set | held |
+| `confirmed` | done | debited |
+| `rejected` / `failed` | will not proceed | still held until released |
+| `refunded` | the hold has gone back to available | returned |
+
+`confirmed` and `refunded` are terminal. Everything else moves on its own.
+
+Note the gap between `failed` and `refunded`. A withdrawal that failed after
+submission does **not** return the money automatically, because a payout that
+looks failed can still confirm — refunding it first would pay the user twice.
+An operator releases it explicitly, with a written attestation that they
+checked the chain. Show the user "under review", not "refunded", until the
+status actually says `refunded`.
+
+### Fees
+
+The fee is **fixed when the payout is created**, not when you ask. Until then
+`fee` and `amount_net` are `null`, and after that they do not change.
+
+- `deduct` (the default) — the user pays: `amount_net = amount_gross - fee`
+- `absorb` — the user receives the whole amount and the operator pays the miner
+
+For BTC the fee is a live fee-rate estimate multiplied by an assumed
+transaction size. It is an estimate of what the operator's wallet will pay, so
+it will not match the miner fee on the transaction exactly. That difference
+stays with the operator either way; it is never billed back to the user.
+
+A withdrawal whose net amount would land at or below the dust limit (546 sat)
+is refused with `422` **before** any hold is placed. So is one below the
+asset's minimum.
+
+### Destination addresses
+
+Validated on the way in, with the checksum and the network prefix:
+
+- a mainnet address on a testnet deployment is refused, and the reverse
+- a single mistyped character is refused
+- bech32, bech32m (taproot) and base58check are all accepted
+- one of this service's own deposit addresses is refused
+
+All of these are `422` with nothing reserved. There is no way to discover this
+later, which is the point: without it the user's balance sits on hold until a
+human notices.
+
+### Limits and why a small withdrawal can still need approval
+
+Three gates, all evaluated in the same transaction as the hold:
+
+1. **per-withdrawal auto-approval limit** — above it, an operator approves
+2. **per-asset rolling 24h cap** — once the last 24 hours of withdrawals reach
+   it, *everything* goes to manual approval, including small amounts
+3. **optional per-user daily cap**
+
+Gate 2 is why `status` can be `pending_approval` for an amount that was
+auto-approved an hour earlier. The response carries `approval_reason` saying
+which gate fired. This is the control that bounds the damage from a stolen API
+key, so it is deliberately blunt.
+
+### Reading a withdrawal
+
+```http
+GET /v1/withdrawals/{withdrawal_id}
+GET /v1/users/{external_user_id}/withdrawals?limit=25&cursor=<withdrawal_id>
+```
+
+Poll while the status is not terminal. `txid` appears at `broadcast` and is
+what you show the user; treat it as informational until `confirmed`.
+
+### What to show a user
+
+| Status | Suggested message |
+|---|---|
+| `pending_approval` | "Being reviewed" |
+| `approved`, `submitting`, `submitted` | "Processing" |
+| `broadcast` | "Sent" plus the txid |
+| `confirmed` | "Complete" |
+| `failed`, `rejected` | "Being reviewed" — the money is not back yet |
+| `refunded` | "Returned to your balance" |
+
+### Errors
+
+| Status | Meaning |
+|---|---|
+| `402` | not enough available balance (held funds do not count) |
+| `404` | unknown asset |
+| `422` | bad address, dust, below the minimum, or a reused idempotency key |
+| `409` | a duplicate request is in flight |
+
+Retry a `5xx` with the **same** `Idempotency-Key`. A retry with a new key is a
+second withdrawal.
+
 ## Operator endpoints
 
 `GET /v1/admin/deposits/review` and `POST /v1/admin/deposits/{id}/resolve`
@@ -221,6 +365,16 @@ belongs to which deposit and nothing else.
 `GET /v1/admin/wallet-alerts` lists coins that reached the hot wallet matching
 no known deposit — usually a payment to a long-dead address. Those need manual
 attribution.
+
+`GET /v1/admin/withdrawals?status=pending_approval` is the approval queue, with
+`POST .../approve` and `POST .../reject` beside it. Reject returns the money
+immediately, because nothing has been sent yet.
+
+`POST /v1/admin/withdrawals/{id}/release` takes
+`{"attestation": "..."}` and is the only way to return a hold once a payout may
+exist. The text is stored on the withdrawal. It exists because "the payout
+looks failed" and "the coins are definitely not arriving" are different claims,
+and only a human can make the second one.
 
 ## Health
 
