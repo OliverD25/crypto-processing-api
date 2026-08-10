@@ -523,10 +523,10 @@ def _resolve_timed_out(
             logger.warning("timeout.poll_failed", withdrawal_id=str(withdrawal_id), error=str(exc))
             return
 
-        # It may have moved between the query and now — the deadline is long
+        # It may have finished between the query and now — the deadline is long
         # and a route can be found at the last second. Feed the fresh state
         # through the ordinary path and leave it alone.
-        if payout.state is not BackendPayoutState.PENDING:
+        if payout.state in (BackendPayoutState.COMPLETED, BackendPayoutState.CANCELLED):
             withdrawal_service.apply_payout_state(
                 session,
                 withdrawal_id=withdrawal_id,
@@ -539,12 +539,27 @@ def _resolve_timed_out(
             report.moved_on += 1
             return
 
-        if not backend.cancel(backend_ref):
-            # BTCPay refuses once a payout is genuinely in flight, which is the
-            # answer we want: leave it alone and let the poller finish it.
-            report.errors += 1
-            logger.warning("timeout.cancel_refused", withdrawal_id=str(withdrawal_id))
-            return
+        # Best effort, and deliberately not a precondition for anything below.
+        # BTCPay cancels a payout still waiting for a route and refuses one it
+        # has already picked up — `DELETE` answers 400 `invalid-state` — and an
+        # unroutable Lightning payout lives in exactly that second state. A
+        # version that gave up here left the withdrawal held forever, which is
+        # the failure this whole job exists to prevent.
+        if backend.cancel(backend_ref):
+            report.cancelled += 1
+            logger.info(
+                "timeout.cancelled",
+                withdrawal_id=str(withdrawal_id),
+                payout=backend_ref,
+                after_seconds=deadline,
+            )
+        else:
+            logger.info(
+                "timeout.cancel_refused",
+                withdrawal_id=str(withdrawal_id),
+                payout=backend_ref,
+                detail="the rail will not stop it, so the release needs the stronger proof",
+            )
 
         try:
             payout = backend.poll_status(backend_ref)
@@ -557,13 +572,6 @@ def _resolve_timed_out(
 
         withdrawal_service.apply_payout_state(session, withdrawal_id=withdrawal_id, payout=payout)
         session.commit()
-        report.cancelled += 1
-        logger.info(
-            "timeout.cancelled",
-            withdrawal_id=str(withdrawal_id),
-            payout=backend_ref,
-            after_seconds=deadline,
-        )
 
     proof = (
         backend.definitive_failure_proof(payout)
@@ -572,14 +580,14 @@ def _resolve_timed_out(
     )
     if proof is None:
         report.needs_attestation += 1
-        notify(
-            Severity.WARNING,
-            AlertCode.WITHDRAWAL_HOLD_NEEDS_ATTESTATION,
-            f"withdrawal {withdrawal_id} was cancelled after its deadline, but the rail "
-            "would not confirm the payment never left. The user's balance stays held "
-            "until an admin releases it with an attestation.",
-            settings=settings,
-            withdrawal_id=str(withdrawal_id),
+        _alert_once(
+            session_factory,
+            settings,
+            withdrawal_id,
+            reason=(
+                f"past its {deadline}s deadline; the rail cannot yet confirm the payment "
+                "will never happen"
+            ),
         )
         return
 
@@ -588,7 +596,7 @@ def _resolve_timed_out(
         if withdrawal.release_entry_id is not None:
             return
         withdrawal.failure_reason = (
-            withdrawal.failure_reason or "the payout was cancelled after its deadline"
+            withdrawal.failure_reason or "the payout passed its deadline and could not be paid"
         )
         withdrawal_service.auto_release_with_proof(
             session,
@@ -598,6 +606,42 @@ def _resolve_timed_out(
         )
         session.commit()
     report.released += 1
+
+
+def _alert_once(
+    session_factory: Callable[[], Session],
+    settings: Settings,
+    withdrawal_id: uuid.UUID,
+    *,
+    reason: str,
+) -> None:
+    """Raise the operator alert the first time only.
+
+    This job re-checks a stuck row on every sweep, and it should: a payout that
+    cannot be proved dead yet often can be minutes later, once the invoice
+    behind it expires. Alerting on each pass would put the same withdrawal in
+    an operator's notifications sixty times an hour, and an operator who gets
+    that stops reading any of them.
+
+    `failure_reason` is the marker because it is already the row's answer to
+    "why is this not finished", and it is already on the admin screen.
+    """
+    with session_factory() as session:
+        withdrawal = withdrawal_service.lock(session, withdrawal_id)
+        if withdrawal.failure_reason:
+            return
+        withdrawal.failure_reason = reason
+        session.commit()
+
+    notify(
+        Severity.WARNING,
+        AlertCode.WITHDRAWAL_HOLD_NEEDS_ATTESTATION,
+        f"withdrawal {withdrawal_id} is {reason}. The user's balance stays held. This job "
+        "re-checks every sweep and may release it on its own once the rail is certain; an "
+        "admin can release it sooner with an attestation.",
+        settings=settings,
+        withdrawal_id=str(withdrawal_id),
+    )
 
 
 @dataclass

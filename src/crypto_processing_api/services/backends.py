@@ -32,6 +32,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
@@ -332,9 +333,57 @@ class LightningPayoutBackend(BtcpayPayoutBackend):
         return msat_to_sat_round_up(millisatoshi)
 
     def definitive_failure_proof(self, payout: BackendPayout) -> str | None:
+        """Two questions, and the second one took a live stack to find.
+
+        The node's verdict says whether money has left *so far*. On its own
+        that is only enough if nothing can send it later — otherwise a released
+        hold plus a retry that finally finds a route is a double payment.
+
+        A payout BTCPay has cancelled needs only the verdict: a cancelled
+        payout is never attempted again. A payout still live needs more, and
+        this is the part the spike did not reach. BTCPay refuses to cancel a
+        payout that is `InProgress` — `DELETE` answers 400 `invalid-state`,
+        verified against 2.4.2 — and an unroutable Lightning payout sits
+        `InProgress` indefinitely, carrying a `PayoutLightningBlob` whose
+        preimage is all zeros because nothing settled. For those the invoice
+        itself has to be dead: an expired BOLT11 cannot be paid by anybody,
+        however many times anything retries it.
+
+        That branch trades latency for certainty and it is the right trade.
+        The hold comes back without a human either way; it comes back at the
+        moment nothing in the world can still spend it.
+        """
         payment_hash = self.payment_hash(payout)
         if payment_hash is None:
             return None
+
+        verdict = self._node_verdict(payout, payment_hash)
+        if verdict is None:
+            return None
+
+        if payout.state is BackendPayoutState.CANCELLED:
+            return (
+                f"payout {payout.id} was cancelled and {verdict}. A cancelled payout is "
+                "never attempted again, so the funds did not leave and cannot."
+            )
+
+        expired_at = self._expired_at(payout)
+        if expired_at is None:
+            logger.info(
+                "lightning.failure_not_definitive",
+                payout=payout.id,
+                detail="still live, and its invoice has not expired yet",
+            )
+            return None
+        return (
+            f"payout {payout.id} could not be cancelled — BTCPay leaves an unroutable "
+            f"Lightning payout in {payout.raw_state or payout.state.value} — but "
+            f"{verdict}, and the invoice expired at {expired_at}. An expired BOLT11 "
+            "cannot be paid by anyone, so no retry can still spend these funds."
+        )
+
+    def _node_verdict(self, payout: BackendPayout, payment_hash: str) -> str | None:
+        """What the node says about this payment, or None if it is not proof."""
         try:
             payment = self.gateway.get_lightning_payment(self.crypto_code, payment_hash)
         except BTCPayNotFound:
@@ -344,10 +393,8 @@ class LightningPayoutBackend(BtcpayPayoutBackend):
             if not self._node_is_answering():
                 return None
             return (
-                f"the Lightning node has no record of payment {payment_hash}: BTCPay "
-                f"answered 404 for it after payout {payout.id} was cancelled, and the "
-                "node itself is reachable. No HTLC was ever offered, so the funds did "
-                "not leave."
+                f"the node has no record of payment {payment_hash} while being reachable, "
+                "so no HTLC was ever offered"
             )
         except BTCPayError as exc:
             logger.warning("lightning.failure_proof_unavailable", payout=payout.id, error=str(exc))
@@ -357,10 +404,18 @@ class LightningPayoutBackend(BtcpayPayoutBackend):
             logger.info("lightning.failure_not_definitive", payout=payout.id, status=payment.status)
             return None
         return (
-            f"the Lightning node reports payment {payment_hash} as {payment.status} after "
-            f"payout {payout.id} was cancelled: every route attempt failed and no HTLC "
-            "settled, so the funds did not leave."
+            f"the node reports payment {payment_hash} as {payment.status}, so every route "
+            "attempt failed and no HTLC settled"
         )
+
+    def _expired_at(self, payout: BackendPayout) -> str | None:
+        try:
+            invoice = decode_bolt11(payout.destination, network=self.network)
+        except AddressError:
+            return None
+        if invoice.expires_at > datetime.now(UTC):
+            return None
+        return invoice.expires_at.isoformat()
 
     def _node_is_answering(self) -> bool:
         try:

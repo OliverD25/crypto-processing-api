@@ -20,6 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from crypto_processing_api.alerts import notifier
 from crypto_processing_api.config import get_settings
 from crypto_processing_api.core.addresses import decode_bolt11
 from crypto_processing_api.ledger import service as ledger
@@ -660,6 +661,162 @@ def test_a_stuck_payout_the_node_will_not_vouch_for_waits_for_a_human(
     assert withdrawal.status == WithdrawalStatus.FAILED
     assert withdrawal.release_entry_id is None
     assert user_balance(session, "ln-unsure", AccountKind.USER_HOLD) == 50_000
+
+
+def stage_unroutable_in_progress(
+    session: Session,
+    fake: FakeBTCPay,
+    withdrawal_id: uuid.UUID,
+    *,
+    invoice_expiry_seconds: int,
+) -> str:
+    """Reproduce what a real BTCPay does with a payout it cannot route.
+
+    Not `AwaitingPayment`. The live stack hands the payout to its Lightning
+    processor, which moves it to `InProgress` and leaves it there permanently
+    once routing fails — attaching a `PayoutLightningBlob` whose preimage is
+    all zeros, because nothing settled. `DELETE` on it answers 400
+    `invalid-state`, which is why the fake refuses to cancel one too.
+    """
+    withdrawal = withdrawal_service.lock(session, withdrawal_id)
+    destination = mint_bolt11(
+        amount_sat=withdrawal.amount_net or 49_900,
+        expiry_seconds=invoice_expiry_seconds,
+        timestamp=int((datetime.now(UTC) - timedelta(hours=1)).timestamp()),
+    )
+    withdrawal.destination_address = destination
+    payout_id = withdrawal.backend_ref
+    assert payout_id
+    session.commit()
+
+    fake.payouts[payout_id].destination = destination
+    fake.payouts[payout_id].state = "InProgress"
+    fake.record_lightning_payment(
+        decode_bolt11(destination, network="regtest").payment_hash, status="Failed"
+    )
+    return payout_id
+
+
+def test_a_payout_the_rail_will_not_cancel_is_released_once_the_invoice_dies(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """The case a live BTCPay produced and the spike never saw.
+
+    An unroutable payout is `InProgress`, and BTCPay refuses to cancel one. So
+    "cancel, then ask the node" cannot be the whole story — the rail will not
+    stop, and a node that says `Failed` today might be asked to try again
+    tomorrow. What makes it safe is the invoice: an expired BOLT11 cannot be
+    paid by anyone, so once it is dead no retry can spend the funds.
+    """
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-inprogress"
+    )
+    available_after_hold = user_balance(session, "ln-inprogress", AccountKind.USER_AVAILABLE)
+    # An hour old with a one-minute expiry: long dead.
+    stage_unroutable_in_progress(session, fake_btcpay, withdrawal_id, invoice_expiry_seconds=60)
+    age_submission(session, withdrawal_id, minutes=30)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.checked == 1
+    assert report.cancelled == 0, "BTCPay refuses to cancel an in-progress payout"
+    assert report.released == 1
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.REFUNDED
+    assert withdrawal.released_by == withdrawal_service.ACTOR_DEFINITIVE_FAILURE
+    attestation = withdrawal.release_attestation or ""
+    assert "could not be cancelled" in attestation
+    assert "expired" in attestation
+    assert (
+        user_balance(session, "ln-inprogress", AccountKind.USER_AVAILABLE)
+        == available_after_hold + 50_000
+    )
+
+
+def test_a_live_payout_whose_invoice_is_still_alive_is_not_released(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """The safety half of the same rule.
+
+    The node says `Failed`, which on its own looks like proof. It is not: the
+    rail will not stop retrying and the invoice is still payable, so a route
+    appearing in the next hour would pay a withdrawal whose hold we had already
+    given back. The balance stays held and an operator is told.
+    """
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-stillalive"
+    )
+    withdrawal = withdrawal_service.lock(session, withdrawal_id)
+    destination = mint_bolt11(amount_sat=withdrawal.amount_net or 49_900, expiry_seconds=86_400)
+    withdrawal.destination_address = destination
+    payout_id = withdrawal.backend_ref
+    assert payout_id
+    session.commit()
+    fake_btcpay.payouts[payout_id].destination = destination
+    fake_btcpay.payouts[payout_id].state = "InProgress"
+    fake_btcpay.record_lightning_payment(
+        decode_bolt11(destination, network="regtest").payment_hash, status="Failed"
+    )
+    age_submission(session, withdrawal_id, minutes=30)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.released == 0
+    assert report.needs_attestation == 1
+
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.release_entry_id is None
+    assert user_balance(session, "ln-stillalive", AccountKind.USER_HOLD) == 50_000
+
+
+def test_the_operator_is_told_once_not_once_per_sweep(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """A stuck row is re-checked every sweep, on purpose — an invoice that is
+    not dead yet will be later. Alerting on each pass would put the same
+    withdrawal in front of an operator sixty times an hour."""
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-noisy"
+    )
+    withdrawal = withdrawal_service.lock(session, withdrawal_id)
+    destination = mint_bolt11(amount_sat=withdrawal.amount_net or 49_900, expiry_seconds=86_400)
+    withdrawal.destination_address = destination
+    payout_id = withdrawal.backend_ref
+    assert payout_id
+    session.commit()
+    fake_btcpay.payouts[payout_id].destination = destination
+    fake_btcpay.payouts[payout_id].state = "InProgress"
+    fake_btcpay.record_lightning_payment(
+        decode_bolt11(destination, network="regtest").payment_hash, status="Failed"
+    )
+    age_submission(session, withdrawal_id, minutes=30)
+
+    alerts: list[str] = []
+    notifier.set_transport(
+        type("T", (), {"send": lambda _self, _sev, code, _msg: alerts.append(code)})()
+    )
+    try:
+        for _ in range(3):
+            reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+    finally:
+        notifier.set_transport(None)
+
+    assert alerts.count(notifier.AlertCode.WITHDRAWAL_HOLD_NEEDS_ATTESTATION.value) == 1
 
 
 def test_a_payout_that_completes_just_before_the_deadline_is_not_cancelled(

@@ -1083,15 +1083,24 @@ def timed_out_submissions(
     old — which would make the deadline unreachable exactly for the rows being
     watched most closely.
 
-    `submitted` only. A payout that reached `broadcast` is being actively paid
-    and giving up on it would be giving up on money already in flight.
+    **Both `submitted` and `broadcast`**, and the second one was learned the
+    hard way. `broadcast` means the backend said IN_FLIGHT, and on chain that
+    is a transaction in the mempool — money genuinely on its way, which no
+    deadline should abandon. On Lightning it means BTCPay's processor picked
+    the payout up, and a payment it cannot route stays there permanently: the
+    live stack leaves an unroutable payout `InProgress` forever, with a
+    `PayoutLightningBlob` whose preimage is all zeros because nothing settled.
+
+    Restricting this to `submitted` therefore missed the exact case the
+    deadline exists for. Only assets that set `submitted_timeout_seconds` reach
+    this query at all, so no on-chain row is ever considered.
     """
     cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
     rows = session.execute(
         select(Withdrawal.id)
         .where(
             Withdrawal.asset_id == asset_id,
-            Withdrawal.status == WithdrawalStatus.SUBMITTED,
+            Withdrawal.status.in_((WithdrawalStatus.SUBMITTED, WithdrawalStatus.BROADCAST)),
             Withdrawal.backend_ref.isnot(None),
             Withdrawal.submitted_at.isnot(None),
             Withdrawal.submitted_at < cutoff,

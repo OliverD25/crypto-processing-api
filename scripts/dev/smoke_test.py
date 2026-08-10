@@ -701,6 +701,9 @@ def drill_crash(api: Api, generated: dict[str, str]) -> None:
 LN_FLAT_FEE = 100
 #: Comfortably above the payee's channel, so no route can carry it.
 LN_UNROUTABLE_NET = 2_999_900
+#: Long enough to clear the submission guard's two-minute margin, short enough
+#: that the drill does not wait out a wallet's usual hour.
+LN_UNROUTABLE_EXPIRY = 240
 
 
 def ln_addinvoice(node: str, *, sats: int | None = None, expiry: int | None = None) -> str:
@@ -863,26 +866,38 @@ def drill_ln_exhausted(api: Api) -> None:
             "scripts/dev/ln_bootstrap.sh, that channel is meant to be the limit"
         )
 
-    invoice = ln_addinvoice("lnd-payee", sats=LN_UNROUTABLE_NET)
+    # A short expiry, because the release waits for it. BTCPay does not leave
+    # an unroutable payout where it can be cancelled — it hands it to the
+    # Lightning processor, which parks it `InProgress`, and `DELETE` on one of
+    # those answers 400. So "the node says Failed" is not on its own enough to
+    # give the hold back: the rail has not stopped and could try again. What
+    # settles it is the invoice dying, after which nobody can pay it.
+    invoice = ln_addinvoice("lnd-payee", sats=LN_UNROUTABLE_NET, expiry=LN_UNROUTABLE_EXPIRY)
     created = api.create_withdrawal("ln-drain", gross, invoice, f"lnx-{time.time()}", asset=BTC_LN)
     withdrawal_id = created["withdrawal_id"]
     if created["status"] == "pending_approval":
         log(f"  queued ({created.get('approval_reason')}); approving")
         api.approve(withdrawal_id)
 
-    held = wait_for_withdrawal(api, withdrawal_id, "submitted", timeout=180)
-    log(f"  submitted and unroutable; balance held ({held['amount_gross']})")
+    def taken_up() -> dict[str, Any] | None:
+        body = api.withdrawal(withdrawal_id)
+        return body if body["status"] in ("submitted", "broadcast") else None
+
+    held = wait_until(
+        taken_up, timeout=180, description="the payout to be created and attempted", interval=3
+    )
+    log(f"  {held['status']} and unroutable; balance held ({held['amount_gross']})")
 
     def refunded() -> dict[str, Any] | None:
         body = api.withdrawal(withdrawal_id)
         return body if body["status"] == "refunded" else None
 
-    # The service's own deadline, then the job that acts on it. The overlay
-    # sets LN_PAYOUT_TIMEOUT_SECONDS to 60 so this is a wait, not an afternoon.
+    # The deadline (60s in the overlay), then the invoice expiry, then the job
+    # that acts on both. Minutes, not an afternoon.
     body = wait_until(
         refunded,
-        timeout=300,
-        description="the deadline to cancel the payout and the node to prove it unpaid",
+        timeout=480,
+        description="the deadline to pass, the invoice to expire, and the node to prove it unpaid",
         interval=5,
     )
 
@@ -896,7 +911,7 @@ def drill_ln_exhausted(api: Api) -> None:
             f"released by {released_by!r}; the hold should have been given back on the "
             "node's own answer, not by anything else"
         )
-    if "did not leave" not in attestation:
+    if "did not leave" not in attestation and "cannot be paid" not in attestation:
         raise SmokeFailure(f"the attestation does not say the funds stayed put: {attestation!r}")
 
     balances_after = api.ledger_balances("ln-drain", asset=BTC_LN)
