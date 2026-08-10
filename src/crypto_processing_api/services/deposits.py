@@ -356,6 +356,17 @@ def _breaches_pooled_tolerance(
     return abs(received - deposit.amount_expected) > allowed
 
 
+#: The statuses this version knows how to act on. Anything else is refused
+#: earlier, in `apply_invoice_state`, rather than falling through the mapping
+#: below — the fall-through means `Invalid`, which is a real BTCPay status with
+#: a known meaning, and conflating it with "never heard of it" would route a
+#: renamed status into the review queue as though a human had something to
+#: decide.
+KNOWN_INVOICE_STATUSES: frozenset[str] = frozenset(
+    {"New", "Processing", "Settled", "Expired", "Invalid"}
+)
+
+
 def _target_status(invoice: Invoice, *, has_payments: bool) -> DepositStatus:
     """Map BTCPay's invoice state to ours.
 
@@ -363,6 +374,9 @@ def _target_status(invoice: Invoice, *, has_payments: bool) -> DepositStatus:
     dropped: `Marked` means a human clicked "settled" in the BTCPay UI,
     `PaidLate` means the money arrived after the window closed, and `Invalid`
     means BTCPay itself gave up on the invoice.
+
+    Only called with a status in `KNOWN_INVOICE_STATUSES`; the final
+    `return REVIEW` is `Invalid`'s branch, not a catch-all for the unknown.
     """
     if invoice.status == "New":
         return DepositStatus.CONFIRMING if has_payments else DepositStatus.PENDING
@@ -482,6 +496,25 @@ def apply_invoice_state(
             f"deposit {deposit.id} belongs to invoice {deposit.btcpay_invoice_id}, not {invoice.id}"
         )
     if previous in TERMINAL_STATUSES:
+        return result
+
+    if invoice.status not in KNOWN_INVOICE_STATUSES:
+        # Leave the row exactly where it is. We do not know whether this state
+        # means money arrived, so recording payments or moving the deposit
+        # would both be guesses about money.
+        #
+        # A no-op rather than a route to `review`, because this self-heals: the
+        # deposit is still pending or confirming, the poller keeps asking, and
+        # the next answer BTCPay gives in a status we understand settles it. A
+        # renamed status would otherwise flood the review queue with deposits
+        # that were never in doubt.
+        logger.warning(
+            "deposit.unknown_invoice_status",
+            deposit_id=str(deposit.id),
+            invoice=invoice.id,
+            status=invoice.status,
+            detail="left untouched; the poller will retry",
+        )
         return result
 
     asset = get_asset(session, deposit.asset_id, require_enabled=False)

@@ -364,3 +364,75 @@ def test_usdt_is_kept_when_the_plugin_is_present(session: Session, fake_btcpay: 
     session.commit()
     assert report.resolved[USDT] == "USDT_TRC20-TRON"
     assert report.disabled == []
+
+
+def test_an_invoice_status_this_version_never_heard_of_is_survivable(
+    session: Session, session_factory: sessionmaker[Session], fake_btcpay: FakeBTCPay
+) -> None:
+    """A future BTCPay invoice status must not take the deposit sweep down.
+
+    The same latent bug the payout path had, on the deposit side.
+    `Invoice.status` was a pydantic Literal, so an unrecognised status was
+    rejected during parsing — before `_target_status` or the transition matrix
+    could decline to act on it. That ValidationError is not a BTCPayError, so
+    `sweep_deposits` did not skip the row: it raised through the batch and
+    every deposit queued behind it stopped being polled.
+
+    Two deposits on purpose. The first proves the odd status is ignored, the
+    second proves the batch carrying it still made progress.
+    """
+    odd = make_deposit(session, fake_btcpay, user="odd-status")
+    odd_invoice = odd.btcpay_invoice_id
+    assert odd_invoice
+    fake_btcpay.add_payment(odd_invoice, HALF_BTC)
+    fake_btcpay.settle(odd_invoice)
+
+    normal = make_deposit(session, fake_btcpay, user="normal-status")
+    normal_invoice = normal.btcpay_invoice_id
+    assert normal_invoice
+    fake_btcpay.add_payment(normal_invoice, HALF_BTC)
+    fake_btcpay.settle(normal_invoice)
+
+    # BTCPay 2.4.2 cannot emit this; a later one might.
+    fake_btcpay.invoices[odd_invoice].status = "SettledOnSomeFutureRail"
+
+    report = reconciliation.sweep_deposits(session_factory, fake_btcpay, get_settings())
+
+    session.rollback()
+    session.refresh(odd)
+    assert odd.status == DepositStatus.PENDING, (
+        "an unrecognised invoice status must leave the deposit exactly where it was"
+    )
+    assert balance(session, "odd-status") == 0, "credited on a status we cannot interpret"
+
+    session.refresh(normal)
+    assert normal.status == DepositStatus.SETTLED, (
+        "the unknown status stopped the rest of the batch from being swept"
+    )
+    assert balance(session, "normal-status") == HALF_BTC_SATS
+    assert report.errors == 0, "an unknown status is news, not an error"
+
+
+def test_the_deposit_recovers_once_btcpay_says_something_known(
+    session: Session, session_factory: sessionmaker[Session], fake_btcpay: FakeBTCPay
+) -> None:
+    """Why a no-op beats routing to review: the poller heals it by itself."""
+    deposit = make_deposit(session, fake_btcpay, user="recovers")
+    invoice_id = deposit.btcpay_invoice_id
+    assert invoice_id
+    fake_btcpay.add_payment(invoice_id, HALF_BTC)
+    fake_btcpay.settle(invoice_id)
+    fake_btcpay.invoices[invoice_id].status = "AStatusFromTheFuture"
+
+    reconciliation.sweep_deposits(session_factory, fake_btcpay, get_settings())
+    session.rollback()
+    session.refresh(deposit)
+    assert deposit.status == DepositStatus.PENDING
+
+    fake_btcpay.invoices[invoice_id].status = "Settled"
+    reconciliation.sweep_deposits(session_factory, fake_btcpay, get_settings())
+
+    session.rollback()
+    session.refresh(deposit)
+    assert deposit.status == DepositStatus.SETTLED
+    assert balance(session, "recovers") == HALF_BTC_SATS

@@ -18,6 +18,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+#: The invoice states BTCPay 2.4.2 is known to emit. Documentation and test
+#: data — deliberately NOT the field types, for the reason spelled out on
+#: `Invoice.status`. Server-owned enums are parsed as plain strings and
+#: recognised later, so a value we have never seen is news rather than a crash.
 InvoiceStatus = Literal["New", "Processing", "Expired", "Invalid", "Settled"]
 InvoiceAdditionalStatus = Literal[
     "None", "PaidLate", "PaidPartial", "Marked", "Invalid", "PaidOver"
@@ -48,8 +52,18 @@ class Invoice(TransportModel):
     created_time: int | None = Field(default=None, alias="createdTime")
     expiration_time: int | None = Field(default=None, alias="expirationTime")
     monitoring_expiration: int | None = Field(default=None, alias="monitoringExpiration")
-    status: InvoiceStatus
-    additional_status: InvoiceAdditionalStatus = Field(default="None", alias="additionalStatus")
+    #: `str`, not `InvoiceStatus`, and the difference is the whole deposit
+    #: sweep. A Literal makes pydantic reject an unrecognised status during
+    #: parsing, before `_target_status` or the transition matrix can decline to
+    #: act on it. The resulting ValidationError is not a BTCPayError, so the
+    #: sweep does not skip that deposit — it raises through the batch and every
+    #: other deposit behind it stops being polled. A status we do not recognise
+    #: is news, not a crash; `apply_invoice_state` logs it and leaves the row
+    #: alone, and the next poll settles it once BTCPay says something known.
+    status: str
+    #: Same reasoning. This one decides review-vs-settle for late and
+    #: over-payments, so a new value here is exactly the case worth surviving.
+    additional_status: str = Field(default="None", alias="additionalStatus")
     archived: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     checkout: CheckoutOptions | None = None
@@ -60,7 +74,10 @@ class Payment(TransportModel):
     received_date: int | None = Field(default=None, alias="receivedDate")
     value: str
     fee: str | None = None
-    status: PaymentStatus
+    #: Server-owned, so parsed loosely. An unrecognised payment status is not
+    #: `Settled`, so it is never credited, and not `Invalid`, so it still counts
+    #: as a payment that exists — which is the safe reading of "unknown".
+    status: str
     destination: str | None = None
 
     @property
