@@ -30,3 +30,9 @@ os.environ.setdefault("BTCPAY_URL", "http://btcpay.invalid")
 os.environ.setdefault("BTCPAY_API_KEY", "test-api-key")
 os.environ.setdefault("BTCPAY_STORE_ID", FAKE_STORE_ID)
 os.environ.setdefault("BTCPAY_WEBHOOK_SECRET", FAKE_WEBHOOK_SECRET)
+
+# The suite models a regtest deployment, so withdrawal destinations are regtest
+# addresses. MEMPOOL_SPACE_URL is cleared because no test may depend on a third
+# party being reachable.
+os.environ.setdefault("BITCOIN_NETWORK", "regtest")
+os.environ.setdefault("MEMPOOL_SPACE_URL", "")

@@ -457,26 +457,22 @@ def test_orphan_event_is_flagged_not_credited(
     assert session.execute(select(func.count()).select_from(JournalEntry)).scalar_one() == 0
 
 
-def test_payout_events_are_ignored_until_m3(
+def test_a_payout_that_is_not_ours_is_ignored(
     client: TestClient,
     fake_btcpay: FakeBTCPay,
     session_factory: sessionmaker[Session],
     session: Session,
 ) -> None:
-    post_webhook(
-        client,
-        fake_btcpay,
-        {
-            "deliveryId": "d-1",
-            "originalDeliveryId": "d-1",
-            "type": "PayoutUpdated",
-            "storeId": fake_btcpay.store_id,
-            "payoutId": "p-1",
-        },
+    """Someone else's payout on the same store must not touch our ledger."""
+    payout_id = fake_btcpay.create_foreign_payout(
+        "bcrt1qakxe0syt7wkayqgccadyayhtfxhk9mvmvtq0sx", "0.01000000"
     )
+    post_webhook(client, fake_btcpay, fake_btcpay.payout_webhook("PayoutUpdated", payout_id))
+
     report = drain(session_factory, fake_btcpay)
     assert report.ignored == 1
     assert session.execute(select(WebhookEvent)).scalar_one().status == "ignored"
+    assert session.execute(select(func.count()).select_from(JournalEntry)).scalar_one() == 0
 
 
 def test_a_failing_event_is_retried_then_parked(

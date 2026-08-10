@@ -11,6 +11,7 @@ delivery replayed eight times, a call that times out with no answer.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 from dataclasses import dataclass, field
@@ -18,11 +19,19 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from crypto_processing_api.core.addresses import (
+    BECH32_CHARSET,
+    BECH32_CONST,
+    _bech32_hrp_expand,
+    _bech32_polymod,
+    _convert_bits,
+)
 from crypto_processing_api.core.signing import compute_btcpay_signature
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayNotFound
 from crypto_processing_api.gateway.btcpay_models import (
     Invoice,
     InvoicePaymentMethod,
+    Payout,
     StorePaymentMethod,
     WalletOverview,
     WalletTransaction,
@@ -31,12 +40,28 @@ from crypto_processing_api.gateway.btcpay_models import (
 BTC_METHOD = "BTC-CHAIN"
 
 
+def regtest_address(seed: str, *, hrp: str = "bcrt") -> str:
+    """Mint a real, checksum-valid regtest address.
+
+    The fake has to produce addresses the rest of the service accepts.
+    Inventing `bcrt1qdestination0001` would make the address validator reject
+    our own deposit addresses for the wrong reason and hide whatever the test
+    was actually about.
+    """
+    program = list(hashlib.sha256(seed.encode()).digest()[:20])
+    data = [0, *_convert_bits(program, 8, 5)]
+    values = _bech32_hrp_expand(hrp) + data + [0, 0, 0, 0, 0, 0]
+    checksum = _bech32_polymod(values) ^ BECH32_CONST
+    tail = [(checksum >> 5 * (5 - index)) & 31 for index in range(6)]
+    return hrp + "1" + "".join(BECH32_CHARSET[value] for value in data + tail)
+
+
 @dataclass
 class FakePayment:
     id: str
     value: str
     status: str = "Settled"
-    destination: str = "bcrt1qfakeaddress"
+    destination: str = ""
     received_date: int = 0
 
 
@@ -102,6 +127,36 @@ class FakeInvoice:
         )
 
 
+@dataclass
+class FakePayout:
+    id: str
+    destination: str
+    amount: str
+    payout_method_id: str
+    metadata: dict[str, Any]
+    state: str = "AwaitingPayment"
+    txid: str | None = None
+
+    def to_model(self) -> Payout:
+        proof = (
+            {"proofType": "PayoutTransactionOnChainBlob", "id": self.txid} if self.txid else None
+        )
+        return Payout.model_validate(
+            {
+                "id": self.id,
+                "destination": self.destination,
+                "originalAmount": self.amount,
+                "originalCurrency": "BTC",
+                "payoutAmount": self.amount,
+                "payoutCurrency": "BTC",
+                "payoutMethodId": self.payout_method_id,
+                "state": self.state,
+                "paymentProof": proof,
+                "metadata": self.metadata,
+            }
+        )
+
+
 class FakeBTCPay:
     def __init__(
         self,
@@ -114,6 +169,8 @@ class FakeBTCPay:
         self.webhook_secret = webhook_secret
         self.payment_methods = payment_methods or [BTC_METHOD]
         self.invoices: dict[str, FakeInvoice] = {}
+        self.payouts: dict[str, FakePayout] = {}
+        self.fee_rate = 10.0
         self.wallet_transactions: list[dict[str, Any]] = []
         self.redelivered: list[tuple[str, str]] = []
         self.calls: list[str] = []
@@ -121,6 +178,7 @@ class FakeBTCPay:
         #: ambiguous-timeout path is only reachable this way.
         self.fail_next: dict[str, BTCPayError] = {}
         self._invoice_ids = itertools.count(1)
+        self._payout_ids = itertools.count(1)
         self._payment_ids = itertools.count(1)
         self._delivery_ids = itertools.count(1)
 
@@ -242,7 +300,7 @@ class FakeBTCPay:
             store_id=self.store_id,
             metadata=dict(metadata),
             payment_method_id=(payment_methods or self.payment_methods)[0],
-            destination=f"bcrt1qdestination{number:04d}",
+            destination=regtest_address(f"invoice-{number}"),
             currency=currency,
             created_time=int(now.timestamp()),
             expiration_time=int(expires.timestamp()),
@@ -306,3 +364,97 @@ class FakeBTCPay:
     def redeliver_webhook(self, webhook_id: str, delivery_id: str) -> None:
         self._maybe_fail("redeliver_webhook")
         self.redelivered.append((webhook_id, delivery_id))
+
+    # -- payouts ----------------------------------------------------------
+
+    def get_fee_rate(self, payment_method_id: str, *, block_target: int) -> float:
+        self._maybe_fail("get_fee_rate")
+        return self.fee_rate
+
+    def create_payout(
+        self,
+        *,
+        destination: str,
+        amount: str,
+        payout_method_id: str,
+        metadata: dict[str, Any],
+    ) -> Payout:
+        self._maybe_fail("create_payout")
+        payout = FakePayout(
+            id=f"payout-{next(self._payout_ids)}",
+            destination=destination,
+            amount=amount,
+            payout_method_id=payout_method_id,
+            metadata=dict(metadata),
+        )
+        self.payouts[payout.id] = payout
+        return payout.to_model()
+
+    def get_payout(self, payout_id: str) -> Payout:
+        self._maybe_fail("get_payout")
+        payout = self.payouts.get(payout_id)
+        if payout is None:
+            raise BTCPayNotFound(f"no payout {payout_id}")
+        return payout.to_model()
+
+    def list_payouts(self, *, include_cancelled: bool = False) -> list[Payout]:
+        self._maybe_fail("list_payouts")
+        return [
+            p.to_model()
+            for p in self.payouts.values()
+            if include_cancelled or p.state != "Cancelled"
+        ]
+
+    def cancel_payout(self, payout_id: str) -> bool:
+        self._maybe_fail("cancel_payout")
+        payout = self.payouts.get(payout_id)
+        if payout is None or payout.state in ("InProgress", "Completed"):
+            return False
+        payout.state = "Cancelled"
+        return True
+
+    # -- payout test helpers ---------------------------------------------
+
+    def broadcast_payout(self, payout_id: str, txid: str | None = None) -> str:
+        payout = self.payouts[payout_id]
+        payout.state = "InProgress"
+        payout.txid = txid or f"{payout_id}-txid".ljust(64, "0")
+        return payout.txid
+
+    def complete_payout(self, payout_id: str, txid: str | None = None) -> str:
+        payout = self.payouts[payout_id]
+        if payout.txid is None:
+            self.broadcast_payout(payout_id, txid)
+        payout.state = "Completed"
+        assert payout.txid is not None
+        return payout.txid
+
+    def cancel_payout_externally(self, payout_id: str) -> None:
+        """An operator clicking cancel in the BTCPay UI."""
+        self.payouts[payout_id].state = "Cancelled"
+
+    def create_foreign_payout(self, destination: str, amount: str) -> str:
+        """A payout with no withdrawal id — the ambiguity the freeze rule exists for."""
+        payout = FakePayout(
+            id=f"foreign-{next(self._payout_ids)}",
+            destination=destination,
+            amount=amount,
+            payout_method_id=BTC_METHOD,
+            metadata={},
+        )
+        self.payouts[payout.id] = payout
+        return payout.id
+
+    def payout_webhook(
+        self, event_type: str, payout_id: str, *, delivery_id: str | None = None
+    ) -> dict[str, Any]:
+        return {
+            "deliveryId": delivery_id or f"del-{next(self._delivery_ids)}",
+            "originalDeliveryId": delivery_id or f"del-{next(self._delivery_ids)}",
+            "webhookId": "wh-1",
+            "isRedelivery": False,
+            "type": event_type,
+            "timestamp": int(datetime.now(UTC).timestamp()),
+            "storeId": self.store_id,
+            "payoutId": payout_id,
+        }

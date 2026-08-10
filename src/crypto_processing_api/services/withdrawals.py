@@ -559,9 +559,22 @@ def release_hold(
     post_unsubmit_entry(session, withdrawal)
     post_release_entry(session, withdrawal)
 
-    if withdrawal.status not in (WithdrawalStatus.REJECTED, WithdrawalStatus.FAILED):
-        # Route through a legal intermediate so the matrix stays honest.
+    # Route through the legal intermediate for where this row actually is, so
+    # the matrix stays the single description of what may happen. Refusing a
+    # queued withdrawal is a rejection; giving back a hold whose payout may
+    # exist is a failure, and the two are not the same event.
+    if withdrawal.status in (
+        WithdrawalStatus.REQUESTED,
+        WithdrawalStatus.PENDING_APPROVAL,
+        WithdrawalStatus.APPROVED,
+    ):
         _transition(withdrawal, WithdrawalStatus.REJECTED)
+    elif withdrawal.status in (
+        WithdrawalStatus.SUBMITTING,
+        WithdrawalStatus.SUBMITTED,
+        WithdrawalStatus.BROADCAST,
+    ):
+        _transition(withdrawal, WithdrawalStatus.FAILED)
     _transition(withdrawal, WithdrawalStatus.REFUNDED)
 
     withdrawal.released_by = actor
