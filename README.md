@@ -27,12 +27,33 @@ This service owns the double-entry money ledger; BTCPay owns the blockchain.
 | BTC (on-chain, pruned node) | automatic | automatic via BTCPay payout processor |
 | USDT-TRC20 (USDt plugin + TronGrid) | automatic | manual (admin-approved, on-chain verified) |
 
-## Design documents
+## Local development
+
+```sh
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+
+# ledger database for the tests, on port 54329
+docker compose -f deploy/docker-compose.test.yml up -d
+pytest
+
+# full BTC end-to-end stack: bitcoind regtest, NBXplorer, BTCPay, this API
+docker compose -f deploy/docker-compose.regtest.yml up -d
+python scripts/bootstrap_btcpay.py
+sh scripts/dev/mine.sh 101
+```
+
+`make help` lists the rest. Every configuration variable is documented in
+[`.env.example`](.env.example).
+
+## Documents
 
 The full architecture — verified BTCPay fact sheet, ledger design, integration
 design, security model, and the adversarial review it survived — lives in
 [`docs/design/`](docs/design/). Start with
 [`00-implementation-plan.md`](docs/design/00-implementation-plan.md).
+
+Operations: [`docs/backups.md`](docs/backups.md) — continuous WAL archiving,
+the restore drill, and which records exist in this database and nowhere else.
 
 ## License
 
