@@ -50,6 +50,7 @@ from crypto_processing_api.services.backends import (
 
 logger = get_logger(__name__)
 
+
 @dataclass
 class SweepReport:
     checked: int = 0
