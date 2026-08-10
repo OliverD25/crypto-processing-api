@@ -39,6 +39,7 @@ from crypto_processing_api.ledger.models import (
     DepositPayment,
     WalletTxoAlert,
 )
+from crypto_processing_api.services import asset_registry
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.backends import (
@@ -48,12 +49,6 @@ from crypto_processing_api.services.backends import (
 )
 
 logger = get_logger(__name__)
-
-#: Only on-chain payment methods expose a wallet API. The USDt plugin does not,
-#: so the unattributed-receive detector covers BTC only. That gap is real and
-#: is documented in the USDT attribution runbook in M4.
-ONCHAIN_SUFFIX = "-CHAIN"
-
 
 @dataclass
 class SweepReport:
@@ -244,14 +239,15 @@ def detect_unattributed_receives(
     report = WalletScanReport()
 
     with session_factory() as session:
-        assets = list(
-            session.execute(
-                select(Asset).where(
-                    Asset.enabled.is_(True),
-                    Asset.btcpay_payment_method.endswith(ONCHAIN_SUFFIX),
-                )
-            ).scalars()
-        )
+        registry = asset_registry.get_registry()
+        assets = [
+            asset
+            for asset in session.execute(select(Asset).where(Asset.enabled.is_(True))).scalars()
+            # `has_btcpay_wallet`, not a `-CHAIN` suffix test. The suffix was a
+            # guess about a string; this is a statement about whether BTCPay
+            # exposes a wallet API for the method at all.
+            if (profile := registry.get(asset.id)) is not None and profile.has_btcpay_wallet
+        ]
         targets = [(a.id, a.btcpay_payment_method, a.decimals) for a in assets]
 
     for asset_id, payment_method, decimals in targets:
@@ -478,26 +474,27 @@ def _chain_balance(
     tron: TronGridGateway | None,
     settings: Settings,
 ) -> tuple[int | None, str]:
-    """What the outside world says we hold."""
-    if asset.btcpay_payment_method.endswith(ONCHAIN_SUFFIX):
-        try:
-            overview = gateway.get_wallet(asset.btcpay_payment_method)
-            return to_units(overview.balance, asset.decimals), "btcpay_wallet"
-        except (BTCPayError, AmountError) as exc:
-            logger.warning("job_c.btcpay_balance_failed", asset=asset.id, error=str(exc))
-            return None, "btcpay_wallet_unavailable"
+    """What the outside world says we hold.
 
-    if asset.id == "USDT_TRC20" and tron is not None and settings.tron_hot_wallet_address:
-        try:
-            return (
-                tron.get_trc20_balance(settings.tron_hot_wallet_address, settings.usdt_contract),
-                "trongrid",
-            )
-        except TronGridError as exc:
-            logger.warning("job_c.tron_balance_failed", asset=asset.id, error=str(exc))
-            return None, "trongrid_unavailable"
+    The source name carries the `_unavailable` suffix on failure, exactly as
+    the if/elif chain this replaced did. It is reported through the admin
+    reconciliation endpoint, and an operator reading "trongrid" when the call
+    actually failed would take a missing number for a real one.
+    """
+    profile = asset_registry.get_registry().get(asset.id)
+    if profile is None or profile.custody_source is None:
+        return None, "no_source"
 
-    return None, "no_source"
+    source = profile.custody_source(
+        asset_registry.RegistryContext(settings=settings, asset=asset, gateway=gateway, tron=tron)
+    )
+    if source is None:
+        return None, "no_source"
+
+    balance = source.balance()
+    if balance is None:
+        return None, f"{source.source_name}_unavailable"
+    return balance, source.source_name
 
 
 def check_invariants(

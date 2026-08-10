@@ -27,7 +27,7 @@ from crypto_processing_api.core.amounts import to_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.ledger.models import Withdrawal, WithdrawalStatus
-from crypto_processing_api.services import fees, withdrawals
+from crypto_processing_api.services import asset_registry, fees, withdrawals
 from crypto_processing_api.services.backends import BackendPayout, BtcpayPayoutBackend
 
 logger = get_logger(__name__)
@@ -72,13 +72,15 @@ def submit_approved(
             payment_method = asset.btcpay_payment_method
             decimals = asset.decimals
             gross = withdrawal.amount_gross
+            profile = asset_registry.profile_for(asset.id)
+            fee_policy = profile.fee_policy(
+                asset_registry.RegistryContext(settings=settings, asset=asset, gateway=gateway)
+            )
 
         try:
             # Re-priced here, not at request time: the fee is fixed at
             # submission, and between the two the mempool may have moved.
-            quote = fees.quote_btc_fee(
-                gateway, settings, gross=gross, payment_method_id=payment_method
-            )
+            quote = fee_policy.quote(gross=gross)
         except fees.DustAmount as exc:
             with session_factory() as session:
                 withdrawal = withdrawals.lock(session, withdrawal_id)

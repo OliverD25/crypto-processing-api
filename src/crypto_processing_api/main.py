@@ -19,6 +19,10 @@ from crypto_processing_api.config import Settings, get_settings
 from crypto_processing_api.core.redaction import configure_logging, get_logger
 from crypto_processing_api.db import dispose_engine, session_scope
 from crypto_processing_api.gateway.btcpay_client import BTCPayError
+from crypto_processing_api.services.asset_registry import (
+    assert_every_enabled_asset_has_a_profile,
+    get_registry,
+)
 from crypto_processing_api.services.assets import sync_payment_methods
 
 logger = get_logger(__name__)
@@ -62,6 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     logger.info("startup", environment=settings.environment, version=__version__)
     sync_payment_methods_at_startup(settings)
+    # After the sync, not before: the sync is what disables an asset the store
+    # cannot serve, and a disabled asset needs no profile.
+    with session_scope() as session:
+        assert_every_enabled_asset_has_a_profile(session, get_registry())
     try:
         yield
     finally:

@@ -31,6 +31,10 @@ from crypto_processing_api.core.redaction import configure_logging, get_logger
 from crypto_processing_api.db import get_session_factory, session_scope
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.ledger.models import WorkerHeartbeat
+from crypto_processing_api.services.asset_registry import (
+    assert_every_enabled_asset_has_a_profile,
+    get_registry,
+)
 from crypto_processing_api.services.assets import sync_payment_methods
 from crypto_processing_api.workers import (
     outbound_delivery,
@@ -277,6 +281,7 @@ def startup_sync(gateway: BTCPayGateway) -> None:
     """Resolve payment method ids before any invoice is created with a stale one."""
     with session_scope() as session:
         report = sync_payment_methods(session, gateway)
+        assert_every_enabled_asset_has_a_profile(session, get_registry())
     logger.info(
         "worker.payment_methods",
         resolved=report.resolved,

@@ -44,11 +44,7 @@ from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
 from crypto_processing_api.config import Settings
-from crypto_processing_api.core.addresses import (
-    AddressError,
-    validate_bitcoin_address,
-    validate_tron_address,
-)
+from crypto_processing_api.core.addresses import AddressError
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.ids import uuid7
 from crypto_processing_api.core.redaction import get_logger
@@ -64,7 +60,7 @@ from crypto_processing_api.ledger.models import (
     Withdrawal,
     WithdrawalStatus,
 )
-from crypto_processing_api.services import events
+from crypto_processing_api.services import asset_registry, events
 from crypto_processing_api.services.backends import BACKEND_MANUAL_TRON as BACKEND_MANUAL_TRON
 from crypto_processing_api.services.backends import (
     BackendPayout,
@@ -221,14 +217,12 @@ def validate_destination(
     one lands it somewhere BTCPay no longer attributes to any invoice.
     """
     try:
-        if asset_id == "BTC":
-            validate_bitcoin_address(address, network=settings.bitcoin_network)
-        elif asset_id == "USDT_TRC20":
-            validate_tron_address(address)
-            if settings.tron_hot_wallet_address == address:
-                raise InvalidDestination("that address is this service's own TRON hot wallet")
-        else:
-            raise InvalidDestination(f"withdrawals for {asset_id} are not available")
+        profile = asset_registry.profile_for(asset_id)
+    except asset_registry.UnknownAsset as exc:
+        raise InvalidDestination(f"withdrawals for {asset_id} are not available") from exc
+
+    try:
+        profile.destination_validator(session, settings, address)
     except AddressError as exc:
         raise InvalidDestination(str(exc)) from exc
 

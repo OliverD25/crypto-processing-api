@@ -26,8 +26,8 @@ from crypto_processing_api.db import db_session, get_session_factory
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.gateway.trongrid import TronGridError, TronGridGateway
 from crypto_processing_api.ledger.models import OutboundEvent, WalletTxoAlert, WithdrawalStatus
+from crypto_processing_api.services import asset_registry, fees
 from crypto_processing_api.services import deposits as deposit_service
-from crypto_processing_api.services import fees
 from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.backends import ManualTronBackend, TronTxVerifier
 from crypto_processing_api.workers import outbound_delivery, reconciliation
@@ -207,18 +207,19 @@ def approve_withdrawal(
     _payload: ApproveWithdrawalRequest,
     key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     session: Annotated[Session, Depends(db_session)],
+    gateway: Annotated[BTCPayGateway, Depends(get_gateway)],
+    settings: Annotated[Settings, Depends(get_settings_dependency)],
 ) -> dict[str, Any]:
     try:
         withdrawal = withdrawal_service.approve(session, withdrawal_id, actor=key.key_id)
-        if withdrawal.backend == withdrawal_service.BACKEND_MANUAL_TRON:
+        asset = withdrawal_service.get_asset(session, withdrawal.asset_id, require_enabled=False)
+        profile = asset_registry.profile_for(asset.id)
+        if profile.sweep == "operator":
             # Nothing can send this for us, so approval is also the handover:
             # the money is committed and an operator now owes a transfer.
-            asset = withdrawal_service.get_asset(
-                session, withdrawal.asset_id, require_enabled=False
-            )
-            quote = fees.flat_fee_quote(
-                gross=withdrawal.amount_gross, flat_fee=asset.withdrawal_flat_fee
-            )
+            quote = profile.fee_policy(
+                asset_registry.RegistryContext(settings=settings, asset=asset, gateway=gateway)
+            ).quote(gross=withdrawal.amount_gross)
             withdrawal_service.submit_manual(session, withdrawal, quote=quote)
     except withdrawal_service.WithdrawalNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc

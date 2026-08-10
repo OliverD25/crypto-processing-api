@@ -49,11 +49,6 @@ CPAPI_VERSION = 1
 SEARCH_TERM_PREFIX = "cpapi:"
 AUTO_ACTOR = "auto"
 
-#: Invoice currency per asset. Top-up invoices carry no amount, so this only
-#: drives display and BTCPay's rate lookup; using the asset's own currency
-#: keeps the rate at 1 and removes an exchange-rate dependency from the
-#: deposit path entirely.
-INVOICE_CURRENCY: dict[str, str] = {"BTC": "BTC", "USDT_TRC20": "USDT"}
 
 #: Statuses a deposit can move to from each status. `review` is deliberately a
 #: dead end for automation: once a human has to look at it, only an admin
@@ -191,8 +186,17 @@ def deposit_id_from_metadata(metadata: dict[str, Any] | None) -> uuid.UUID | Non
         return None
 
 
-def _expiry_minutes(settings: Settings, asset_id: str) -> int:
-    if asset_id == "USDT_TRC20":
+def _expiry_minutes(settings: Settings, asset: Asset) -> int:
+    """How long the invoice may stay open.
+
+    The row wins when it says anything. NULL means "ask settings", which is
+    what every asset says today — the number belongs to a deployment, not to
+    the asset, and freezing one into a row during a migration would outlive the
+    configuration that produced it.
+    """
+    if asset.deposit_expiry_minutes is not None:
+        return asset.deposit_expiry_minutes
+    if asset.pooled_addresses:
         return settings.deposit_invoice_expiry_min_usdt
     return settings.deposit_invoice_expiry_min_btc
 
@@ -300,10 +304,10 @@ def ensure_invoice(
         logger.info("deposit.invoice_adopted", deposit_id=str(deposit.id), invoice=invoice.id)
     else:
         invoice = gateway.create_top_up_invoice(
-            currency=INVOICE_CURRENCY.get(asset.id, asset.id),
+            currency=asset.invoice_currency or asset.id,
             metadata=build_metadata(deposit),
             payment_methods=[asset.btcpay_payment_method],
-            expiration_minutes=_expiry_minutes(settings, asset.id),
+            expiration_minutes=_expiry_minutes(settings, asset),
             monitoring_minutes=settings.deposit_monitoring_minutes,
             additional_search_terms=[f"{SEARCH_TERM_PREFIX}{deposit.id}"],
         )
@@ -327,13 +331,7 @@ def mark_failed(session: Session, *, deposit: Deposit, reason: str) -> None:
     session.flush()
 
 
-#: Assets whose deposit addresses come from a shared pool rather than being
-#: derived per invoice. Attribution for these is heuristic, so an amount that
-#: does not match what the user said they would send is worth a human's time.
-POOLED_ASSETS: frozenset[str] = frozenset({"USDT_TRC20"})
-
-
-def _breaches_usdt_tolerance(
+def _breaches_pooled_tolerance(
     deposit: Deposit,
     asset: Asset,
     parsed: list[tuple[str, int, str]],
@@ -347,7 +345,7 @@ def _breaches_usdt_tolerance(
     way to refuse money — it routes to a human, who credits it after checking
     the reservation window.
     """
-    if asset.id not in POOLED_ASSETS or deposit.amount_expected is None:
+    if not asset.pooled_addresses or deposit.amount_expected is None:
         return False
     if tolerance_pct <= 0:
         return False
@@ -522,7 +520,7 @@ def apply_invoice_state(
     if unparseable:
         target = DepositStatus.REVIEW
 
-    if target == DepositStatus.SETTLED and _breaches_usdt_tolerance(
+    if target == DepositStatus.SETTLED and _breaches_pooled_tolerance(
         deposit, asset, parsed, tolerance_pct=tolerance_pct
     ):
         logger.warning(

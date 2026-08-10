@@ -145,7 +145,7 @@ def create_deposit(
     except BTCPayValidation as exc:
         deposit_service.mark_failed(session, deposit=deposit, reason=str(exc))
         session.commit()
-        if asset.id in deposit_service.POOLED_ASSETS:
+        if asset.pooled_addresses:
             # The USDt plugin hands out addresses from a fixed pool, so a
             # validation failure here usually means every address is reserved.
             # That is temporary and the platform should retry, which a 502
