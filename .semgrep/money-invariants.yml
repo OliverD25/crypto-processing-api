@@ -113,3 +113,55 @@ rules:
     paths:
       include:
         - /src/crypto_processing_api/**
+
+  # -------------------------------------------------------------------------
+  - id: asset-id-routing
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Behavior selected by comparing an asset id to a literal. This is what the
+      asset registry exists to replace. Add the behavior to the asset's
+      AssetProfile in services/asset_registry.py and ask the profile for it —
+      otherwise adding an asset means finding every one of these again, and the
+      ones you miss take an else branch instead of failing.
+    patterns:
+      - pattern-either:
+          - pattern: $X.asset_id == "..."
+          - pattern: $X.asset_id != "..."
+          - pattern: $X.id == "..."
+          - pattern: $X.id != "..."
+      # `$X.id == "..."` alone would also catch payout ids, invoice ids and
+      # webhook delivery ids, which are ordinary string comparisons and not
+      # routing. Requiring the literal to look like one of this project's asset
+      # ids keeps the rule at zero findings on correct code.
+      - metavariable-regex:
+          metavariable: $X
+          regex: ^(asset|a|row|spec|profile)$
+    paths:
+      include:
+        - /src/crypto_processing_api/**
+      exclude:
+        # The one module allowed to know asset ids: it is the mapping itself.
+        - /src/crypto_processing_api/services/asset_registry.py
+
+  # -------------------------------------------------------------------------
+  - id: asset-id-routing-bare
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Behavior selected by comparing a bare asset_id to a literal. Ask the
+      asset's AssetProfile instead — see services/asset_registry.py.
+    # A separate rule rather than another alternative in `asset-id-routing`,
+    # because that rule constrains $X and $X does not exist in this shape. A
+    # metavariable-regex naming an unbound metavariable silently drops the
+    # match, which is how the first version of this rule found two of three
+    # deliberate violations and reported success.
+    patterns:
+      - pattern-either:
+          - pattern: asset_id == "..."
+          - pattern: asset_id != "..."
+    paths:
+      include:
+        - /src/crypto_processing_api/**
+      exclude:
+        - /src/crypto_processing_api/services/asset_registry.py
