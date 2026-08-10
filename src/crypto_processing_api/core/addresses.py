@@ -29,6 +29,15 @@ class AddressKind(StrEnum):
     P2SH = "p2sh"
     SEGWIT_V0 = "segwit_v0"
     SEGWIT_V1 = "segwit_v1"
+    TRON = "tron"
+
+
+#: TRON mainnet address prefix byte. Nile and Shasta use the same one, so a
+#: TRON address cannot tell you which network it belongs to — the only defence
+#: against paying a testnet address from a mainnet wallet is the operator
+#: knowing which deployment they are on.
+TRON_PREFIX = 0x41
+TRON_ADDRESS_BYTES = 21
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,3 +196,69 @@ def validate_bitcoin_address(address: str, *, network: str) -> AddressKind:
     if "1" in candidate and candidate.lower().split("1")[0] in {"bc", "tb", "bcrt"}:
         return _validate_bech32(candidate, params)
     return _validate_base58(candidate, params)
+
+
+def validate_tron_address(address: str) -> AddressKind:
+    """Validate a TRON base58check address (`T...`).
+
+    21 bytes: the 0x41 prefix plus a 20-byte account, with a four-byte
+    double-SHA256 checksum. That catches typos and, importantly, rejects the
+    hex `0x...` form an EVM-shaped integration would send — USDT exists on
+    Ethereum and Polygon too, and paying an Ethereum address on TRON loses the
+    money.
+    """
+    candidate = address.strip()
+    if not candidate:
+        raise AddressError("address is empty")
+    if candidate != address:
+        raise AddressError("address has leading or trailing whitespace")
+    if candidate.startswith("0x"):
+        raise AddressError(
+            "that is an EVM-style address; TRON addresses are base58check and start with T"
+        )
+    if not candidate.startswith("T"):
+        raise AddressError("TRON addresses start with T")
+
+    decoded = _base58_decode(candidate)
+    if len(decoded) != TRON_ADDRESS_BYTES + 4:
+        raise AddressError("TRON address has the wrong length")
+    payload, checksum = decoded[:TRON_ADDRESS_BYTES], decoded[TRON_ADDRESS_BYTES:]
+    if payload[0] != TRON_PREFIX:
+        raise AddressError(f"TRON address prefix is 0x{payload[0]:02x}, expected 0x41")
+    if hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4] != checksum:
+        raise AddressError("TRON address checksum does not match")
+    return AddressKind.TRON
+
+
+def tron_address_from_hex(value: str) -> str:
+    """Convert TronGrid's hex form (`41...`) to the base58check form.
+
+    TronGrid returns addresses as 21-byte hex in transaction data and as
+    32-byte left-padded hex inside event topics. Both reduce to the same
+    account, and comparing the base58 forms is what makes a verification
+    failure readable in a log.
+    """
+    raw = value.lower().removeprefix("0x")
+    if len(raw) == 64:
+        # An event topic: 32 bytes, the address right-aligned in the last 20.
+        raw = "41" + raw[-40:]
+    if len(raw) == 40:
+        raw = "41" + raw
+    if len(raw) != 42:
+        raise AddressError(f"{value!r} is not a TRON address in hex form")
+    try:
+        payload = bytes.fromhex(raw)
+    except ValueError as exc:
+        raise AddressError(f"{value!r} is not hexadecimal") from exc
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    return _base58_encode(payload + checksum)
+
+
+def _base58_encode(raw: bytes) -> str:
+    value = int.from_bytes(raw, "big")
+    digits: list[str] = []
+    while value:
+        value, remainder = divmod(value, 58)
+        digits.append(BASE58_ALPHABET[remainder])
+    leading_zeros = len(raw) - len(raw.lstrip(bytes([0])))
+    return BASE58_ALPHABET[0] * leading_zeros + "".join(reversed(digits))

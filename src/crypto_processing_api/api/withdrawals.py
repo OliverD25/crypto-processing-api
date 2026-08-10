@@ -105,11 +105,23 @@ def create_withdrawal(
         # A quote at request time, for the dust check only. The fee that gets
         # charged is quoted again at submission, because that is when it is
         # fixed.
-        fees.quote_btc_fee(
-            gateway, settings, gross=gross, payment_method_id=asset.btcpay_payment_method
-        )
+        if asset.id == "BTC":
+            fees.quote_btc_fee(
+                gateway, settings, gross=gross, payment_method_id=asset.btcpay_payment_method
+            )
+        else:
+            fees.flat_fee_quote(gross=gross, flat_fee=asset.withdrawal_flat_fee)
     except fees.DustAmount as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+    # USDT cannot be sent by BTCPay at all: the USDt plugin has no payout
+    # handler. Every USDT withdrawal is an operator task, so it is routed to
+    # the approval queue regardless of amount until a Phase-2 signer exists.
+    is_manual = asset.id == "USDT_TRC20"
+    backend = (
+        withdrawal_service.BACKEND_MANUAL_TRON if is_manual else withdrawal_service.BACKEND_BTCPAY
+    )
+    force_manual = is_manual and not settings.usdt_auto_withdraw
 
     try:
         outcome = withdrawal_service.place_hold(
@@ -118,6 +130,8 @@ def create_withdrawal(
             asset_id=asset.id,
             amount_gross=gross,
             destination_address=payload.destination_address,
+            backend=backend,
+            force_manual=force_manual,
         )
     except withdrawal_service.AmountTooSmall as exc:
         session.rollback()

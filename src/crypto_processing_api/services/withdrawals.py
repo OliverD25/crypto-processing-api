@@ -44,7 +44,11 @@ from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.orm import Session
 
 from crypto_processing_api.config import Settings
-from crypto_processing_api.core.addresses import AddressError, validate_bitcoin_address
+from crypto_processing_api.core.addresses import (
+    AddressError,
+    validate_bitcoin_address,
+    validate_tron_address,
+)
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.ids import uuid7
 from crypto_processing_api.core.redaction import get_logger
@@ -62,13 +66,14 @@ from crypto_processing_api.ledger.models import (
     WithdrawalStatus,
 )
 from crypto_processing_api.services import events
+from crypto_processing_api.services.backends import BACKEND_MANUAL_TRON as BACKEND_MANUAL_TRON
+from crypto_processing_api.services.backends import ManualTronBackend
 from crypto_processing_api.services.fees import FeeQuote
 
 logger = get_logger(__name__)
 
 AUTO_ACTOR = "auto"
 BACKEND_BTCPAY = "btcpay_payout"
-BACKEND_MANUAL_TRON = "manual_tron"
 
 VELOCITY_WINDOW = timedelta(hours=24)
 
@@ -204,11 +209,15 @@ def validate_destination(
     miner fee to move money between our own pockets, and paying an *expired*
     one lands it somewhere BTCPay no longer attributes to any invoice.
     """
-    if asset_id != "BTC":
-        # M4 adds TRON base58check. Until then nothing else can be requested.
-        raise InvalidDestination(f"withdrawals for {asset_id} are not available yet")
     try:
-        validate_bitcoin_address(address, network=settings.bitcoin_network)
+        if asset_id == "BTC":
+            validate_bitcoin_address(address, network=settings.bitcoin_network)
+        elif asset_id == "USDT_TRC20":
+            validate_tron_address(address)
+            if settings.tron_hot_wallet_address == address:
+                raise InvalidDestination("that address is this service's own TRON hot wallet")
+        else:
+            raise InvalidDestination(f"withdrawals for {asset_id} are not available")
     except AddressError as exc:
         raise InvalidDestination(str(exc)) from exc
 
@@ -877,3 +886,188 @@ def held_balance(session: Session, *, asset_id: str, external_user_id: str) -> i
         )
     ).scalar_one_or_none()
     return 0 if account is None else -account.balance
+
+
+class TronVerificationFailed(WithdrawalError):
+    """The pasted transaction id is not the transfer it was claimed to be."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class TxidAlreadyUsed(WithdrawalError):
+    """That transaction id already settles another withdrawal."""
+
+
+def submit_manual(session: Session, withdrawal: Withdrawal, *, quote: FeeQuote) -> Withdrawal:
+    """Move an approved manual withdrawal to `submitted`.
+
+    Nothing is sent here. The operator now has a task: send the net amount from
+    the TRON hot wallet and come back with the transaction id. The submit entry
+    is posted anyway, because the money is committed the moment the operator is
+    told to send it — leaving it uncommitted would let the same balance be
+    promised twice.
+
+    In-flight accounting for USDT commits **net only**. TRC-20 gas is paid in
+    TRX, not in USDT, so no USDT beyond the transfer itself leaves the wallet;
+    the flat fee the user paid is service revenue, not a token cost.
+    """
+    if withdrawal.status != WithdrawalStatus.APPROVED:
+        raise IllegalTransition(
+            f"withdrawal {withdrawal.id} is {withdrawal.status.value}, only approved "
+            "withdrawals can be handed to an operator"
+        )
+    withdrawal.backend_ref = ManualTronBackend.new_reference()
+    withdrawal.fee_amount = quote.fee
+    withdrawal.amount_net = quote.net
+    withdrawal.submitted_at = datetime.now(UTC)
+    post_submit_entry(session, withdrawal, quote)
+    _transition(withdrawal, WithdrawalStatus.SUBMITTING)
+    _transition(withdrawal, WithdrawalStatus.SUBMITTED)
+    session.flush()
+    logger.info(
+        "withdrawal.manual_submitted",
+        withdrawal_id=str(withdrawal.id),
+        backend_ref=withdrawal.backend_ref,
+        net=quote.net,
+    )
+    return withdrawal
+
+
+def mark_broadcast(
+    session: Session,
+    backend: ManualTronBackend,
+    *,
+    withdrawal_id: uuid.UUID,
+    txid: str,
+    actor: str,
+) -> Withdrawal:
+    """Record the operator's transaction id, after checking it is real.
+
+    The check is the whole point. "Included and successful" would accept a
+    previous withdrawal's txid or the TRX top-up that funded the gas — both are
+    real, healthy transactions that moved none of this user's USDT.
+    """
+    withdrawal = lock(session, withdrawal_id)
+    if withdrawal.backend != BACKEND_MANUAL_TRON:
+        raise IllegalTransition(
+            f"withdrawal {withdrawal.id} uses the {withdrawal.backend} backend; "
+            "mark-broadcast is for operator-sent withdrawals"
+        )
+    if withdrawal.status != WithdrawalStatus.SUBMITTED:
+        raise IllegalTransition(
+            f"withdrawal {withdrawal.id} is {withdrawal.status.value}, only submitted "
+            "withdrawals can be marked broadcast"
+        )
+
+    candidate = txid.strip().lower().removeprefix("0x")
+    if not candidate:
+        raise TronVerificationFailed("no transaction id was given")
+
+    duplicate = session.execute(
+        select(Withdrawal.id).where(Withdrawal.txid == candidate, Withdrawal.id != withdrawal.id)
+    ).first()
+    if duplicate is not None:
+        raise TxidAlreadyUsed(
+            f"transaction {candidate} is already recorded against withdrawal {duplicate[0]}"
+        )
+
+    verification = backend.verify_broadcast(withdrawal, candidate)
+    if not verification.ok:
+        logger.error(
+            "withdrawal.tron_verification_failed",
+            withdrawal_id=str(withdrawal.id),
+            reason=verification.reason,
+            actor=actor,
+        )
+        raise TronVerificationFailed(verification.reason or "verification failed")
+
+    asset = get_asset(session, withdrawal.asset_id, require_enabled=False)
+    withdrawal.txid = candidate
+    _transition(withdrawal, WithdrawalStatus.BROADCAST)
+    session.flush()
+    events.emit(
+        session,
+        event_type=events.WITHDRAWAL_BROADCAST,
+        payload=_event_payload(withdrawal, asset),
+    )
+    logger.info(
+        "withdrawal.marked_broadcast",
+        withdrawal_id=str(withdrawal.id),
+        actor=actor,
+        block=verification.block_number,
+    )
+    return withdrawal
+
+
+def poll_manual(
+    session: Session,
+    backend: ManualTronBackend,
+    *,
+    withdrawal_id: uuid.UUID,
+    required_confirmations: int,
+) -> Withdrawal:
+    """Confirm a manual withdrawal once its transaction is deep enough.
+
+    Re-runs the full tuple check on every poll rather than trusting the earlier
+    pass. A reorg that replaced the transaction has to be able to un-verify it,
+    and re-checking costs one request.
+    """
+    withdrawal = lock(session, withdrawal_id)
+    if withdrawal.status != WithdrawalStatus.BROADCAST or not withdrawal.txid:
+        return withdrawal
+
+    verification = backend.verify_broadcast(withdrawal, withdrawal.txid)
+    if not verification.ok:
+        # Do not release, do not fail silently: the money may well have moved.
+        logger.error(
+            "withdrawal.tron_reverification_failed",
+            withdrawal_id=str(withdrawal.id),
+            reason=verification.reason,
+        )
+        withdrawal.failure_reason = f"re-verification failed: {verification.reason}"
+        session.flush()
+        return withdrawal
+
+    confirmations = backend.verifier.confirmations(verification.block_number)
+    if confirmations < required_confirmations:
+        logger.info(
+            "withdrawal.awaiting_confirmations",
+            withdrawal_id=str(withdrawal.id),
+            confirmations=confirmations,
+            required=required_confirmations,
+        )
+        return withdrawal
+
+    asset = get_asset(session, withdrawal.asset_id, require_enabled=False)
+    if withdrawal.settle_entry_id is None:
+        post_settle_entry(session, withdrawal)
+    _transition(withdrawal, WithdrawalStatus.CONFIRMED)
+    withdrawal.failure_reason = None
+    session.flush()
+    events.emit(
+        session,
+        event_type=events.WITHDRAWAL_COMPLETED,
+        payload=_event_payload(withdrawal, asset),
+    )
+    logger.info(
+        "withdrawal.manual_confirmed",
+        withdrawal_id=str(withdrawal.id),
+        confirmations=confirmations,
+    )
+    return withdrawal
+
+
+def due_for_manual_polling(session: Session, *, limit: int = 100) -> list[uuid.UUID]:
+    rows = session.execute(
+        select(Withdrawal.id)
+        .where(
+            Withdrawal.backend == BACKEND_MANUAL_TRON,
+            Withdrawal.status == WithdrawalStatus.BROADCAST,
+            Withdrawal.txid.isnot(None),
+        )
+        .order_by(Withdrawal.updated_at)
+        .limit(limit)
+    ).scalars()
+    return list(rows)

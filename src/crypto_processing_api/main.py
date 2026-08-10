@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from crypto_processing_api import __version__
-from crypto_processing_api.api import admin, deposits, health, webhooks, withdrawals
+from crypto_processing_api.api import admin, balances, deposits, health, webhooks, withdrawals
 from crypto_processing_api.api.middleware import (
     NoStoreMiddleware,
     RequestContextMiddleware,
@@ -88,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(deposits.router)
     app.include_router(withdrawals.router)
+    app.include_router(balances.router)
     app.include_router(admin.router)
     app.include_router(webhooks.router)
     return app

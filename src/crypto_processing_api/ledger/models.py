@@ -254,6 +254,11 @@ class Deposit(Base):
         server_default=text("'creating'"),
     )
     address: Mapped[str | None] = mapped_column(Text)
+    #: When this deposit held its address. Only meaningful for pooled assets
+    #: like USDT-TRC20, where the same address serves different users over
+    #: time and manual attribution needs to know who owned it when.
+    address_reserved_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    address_reserved_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     checkout_link: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # How long BTCPay keeps attributing payments to this invoice. Polling past
@@ -273,6 +278,13 @@ class Deposit(Base):
             "ix_deposits_active",
             "status",
             postgresql_where=text("status IN ('creating','pending','confirming','review')"),
+        ),
+        Index(
+            "ix_deposits_address",
+            "asset_id",
+            "address",
+            text("created_at DESC"),
+            postgresql_where=text("address IS NOT NULL"),
         ),
         Index(
             "ix_deposits_monitoring",

@@ -24,13 +24,14 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from crypto_processing_api.api.middleware import get_gateway
+from crypto_processing_api.api.middleware import get_gateway, get_tron_gateway
 from crypto_processing_api.config import Settings, get_settings
 from crypto_processing_api.core.redaction import configure_logging, get_logger
 from crypto_processing_api.db import get_session_factory, session_scope
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
 from crypto_processing_api.services.assets import sync_payment_methods
 from crypto_processing_api.workers import payout_submitter, reconciliation, webhook_processor
+from crypto_processing_api.workers.gas_monitor import GasMonitor
 
 logger = get_logger(__name__)
 
@@ -46,6 +47,8 @@ JOB_WALLET_SCAN = 5
 JOB_PAYOUT_SUBMIT = 6
 JOB_WITHDRAWAL_SWEEP = 7
 JOB_STUCK_SUBMITTING = 8
+JOB_MANUAL_SWEEP = 9
+JOB_GAS_MONITOR = 10
 
 
 @dataclass
@@ -90,8 +93,7 @@ def run_locked(job: Job) -> Any:
 
 def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
     factory = get_session_factory()
-
-    return [
+    jobs: list[Job] = [
         Job(
             name="webhooks",
             lock_key=JOB_WEBHOOKS,
@@ -143,6 +145,29 @@ def build_jobs(settings: Settings, gateway: BTCPayGateway) -> list[Job]:
             run=lambda: reconciliation.detect_unattributed_receives(factory, gateway, settings),
         ),
     ]
+
+    # TRON jobs only exist once a hot wallet is configured. A BTC-only
+    # deployment should not be making calls to TronGrid at all.
+    if settings.tron_configured:
+        tron = get_tron_gateway()
+        monitor = GasMonitor()
+        jobs.extend(
+            [
+                Job(
+                    name="manual_withdrawal_sweep",
+                    lock_key=JOB_MANUAL_SWEEP,
+                    interval_seconds=settings.reconcile_withdrawal_interval_seconds,
+                    run=lambda: reconciliation.sweep_manual_withdrawals(factory, tron, settings),
+                ),
+                Job(
+                    name="gas_monitor",
+                    lock_key=JOB_GAS_MONITOR,
+                    interval_seconds=settings.gas_monitor_interval_seconds,
+                    run=lambda: monitor.check(tron, settings),
+                ),
+            ]
+        )
+    return jobs
 
 
 class Runner:

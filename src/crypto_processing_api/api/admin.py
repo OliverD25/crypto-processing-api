@@ -11,16 +11,25 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from crypto_processing_api.api.deposits import serialize_deposit
-from crypto_processing_api.api.middleware import get_gateway, require_admin
+from crypto_processing_api.api.middleware import (
+    get_gateway,
+    get_settings_dependency,
+    get_tron_gateway,
+    require_admin,
+)
 from crypto_processing_api.api.withdrawals import serialize_withdrawal
+from crypto_processing_api.config import Settings
 from crypto_processing_api.core import auth
 from crypto_processing_api.core.amounts import from_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.db import db_session
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway
+from crypto_processing_api.gateway.trongrid import TronGridError, TronGridGateway
 from crypto_processing_api.ledger.models import WalletTxoAlert, WithdrawalStatus
 from crypto_processing_api.services import deposits as deposit_service
+from crypto_processing_api.services import fees
 from crypto_processing_api.services import withdrawals as withdrawal_service
+from crypto_processing_api.services.backends import ManualTronBackend, TronTxVerifier
 
 router = APIRouter(tags=["admin"], prefix="/v1/admin")
 logger = get_logger(__name__)
@@ -199,9 +208,22 @@ def approve_withdrawal(
     session: Annotated[Session, Depends(db_session)],
 ) -> dict[str, Any]:
     try:
-        withdrawal_service.approve(session, withdrawal_id, actor=key.key_id)
+        withdrawal = withdrawal_service.approve(session, withdrawal_id, actor=key.key_id)
+        if withdrawal.backend == withdrawal_service.BACKEND_MANUAL_TRON:
+            # Nothing can send this for us, so approval is also the handover:
+            # the money is committed and an operator now owes a transfer.
+            asset = withdrawal_service.get_asset(
+                session, withdrawal.asset_id, require_enabled=False
+            )
+            quote = fees.flat_fee_quote(
+                gross=withdrawal.amount_gross, flat_fee=asset.withdrawal_flat_fee
+            )
+            withdrawal_service.submit_manual(session, withdrawal, quote=quote)
     except withdrawal_service.WithdrawalNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc
+    except fees.DustAmount as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except withdrawal_service.IllegalTransition as exc:
         session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -252,5 +274,79 @@ def release_withdrawal(
     except withdrawal_service.WithdrawalError as exc:
         session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    session.commit()
+    return _withdrawal_response(session, withdrawal_id)
+
+
+class MarkBroadcastRequest(BaseModel):
+    """The operator reporting what they sent.
+
+    A transaction id and nothing else. There is deliberately no amount and no
+    destination field: those are already on the withdrawal, and the server
+    checks the chain against them rather than against anything typed here.
+    """
+
+    txid: str = Field(min_length=16, max_length=128)
+
+
+def build_tron_backend(settings: Settings, gateway: TronGridGateway) -> ManualTronBackend:
+    if not settings.tron_hot_wallet_address:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "TRON_HOT_WALLET_ADDRESS is not configured; USDT withdrawals cannot be verified",
+        )
+    return ManualTronBackend(
+        TronTxVerifier(
+            gateway,
+            contract_address=settings.usdt_contract,
+            hot_wallet_address=settings.tron_hot_wallet_address,
+        )
+    )
+
+
+@router.post("/withdrawals/{withdrawal_id}/mark-broadcast", response_model=None)
+def mark_broadcast(
+    withdrawal_id: uuid.UUID,
+    payload: MarkBroadcastRequest,
+    key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
+    session: Annotated[Session, Depends(db_session)],
+    settings: Annotated[Settings, Depends(get_settings_dependency)],
+    tron: Annotated[TronGridGateway, Depends(get_tron_gateway)],
+) -> dict[str, Any]:
+    """Record the transaction the operator sent, after verifying it on chain.
+
+    Rejection here is a good outcome, not an error to work around: it means the
+    pasted id is not a USDT transfer of this amount from our hot wallet to this
+    destination. The withdrawal stays exactly where it was.
+    """
+    backend = build_tron_backend(settings, tron)
+    try:
+        withdrawal_service.mark_broadcast(
+            session,
+            backend,
+            withdrawal_id=withdrawal_id,
+            txid=payload.txid,
+            actor=key.key_id,
+        )
+    except withdrawal_service.WithdrawalNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such withdrawal") from exc
+    except withdrawal_service.TxidAlreadyUsed as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except withdrawal_service.TronVerificationFailed as exc:
+        session.rollback()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"that transaction does not match this withdrawal: {exc.reason}",
+        ) from exc
+    except withdrawal_service.IllegalTransition as exc:
+        session.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except TronGridError as exc:
+        session.rollback()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "TronGrid is unreachable; try again"
+        ) from exc
+
     session.commit()
     return _withdrawal_response(session, withdrawal_id)

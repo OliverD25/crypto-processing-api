@@ -251,6 +251,13 @@ def attach_invoice(
     deposit.monitoring_expires_at = _timestamp(invoice.monitoring_expiration)
     if method is not None:
         deposit.address = method.destination
+        # For USDT the address comes from a shared pool and goes back into it,
+        # so record who held it and for how long. Without this window, a late
+        # payment cannot be attributed to a user at all.
+        deposit.address_reserved_from = _timestamp(invoice.created_time) or datetime.now(UTC)
+        deposit.address_reserved_until = _timestamp(invoice.monitoring_expiration) or _timestamp(
+            invoice.expiration_time
+        )
     if deposit.status == DepositStatus.CREATING:
         deposit.status = DepositStatus.PENDING
     deposit.updated_at = datetime.now(UTC)
@@ -318,6 +325,37 @@ def mark_failed(session: Session, *, deposit: Deposit, reason: str) -> None:
     deposit.updated_at = datetime.now(UTC)
     logger.warning("deposit.creation_failed", deposit_id=str(deposit.id), reason=reason)
     session.flush()
+
+
+#: Assets whose deposit addresses come from a shared pool rather than being
+#: derived per invoice. Attribution for these is heuristic, so an amount that
+#: does not match what the user said they would send is worth a human's time.
+POOLED_ASSETS: frozenset[str] = frozenset({"USDT_TRC20"})
+
+
+def _breaches_usdt_tolerance(
+    deposit: Deposit,
+    asset: Asset,
+    parsed: list[tuple[str, int, str]],
+    *,
+    tolerance_pct: float,
+) -> bool:
+    """Would auto-crediting this pooled-address payment be a guess?
+
+    Only applies when the platform told us what to expect. A top-up with no
+    expected amount has nothing to compare against, and the tolerance is not a
+    way to refuse money — it routes to a human, who credits it after checking
+    the reservation window.
+    """
+    if asset.id not in POOLED_ASSETS or deposit.amount_expected is None:
+        return False
+    if tolerance_pct <= 0:
+        return False
+    received = sum(amount for _payment_id, amount, status in parsed if status == "Settled")
+    if received == 0:
+        return False
+    allowed = deposit.amount_expected * tolerance_pct / 100.0
+    return abs(received - deposit.amount_expected) > allowed
 
 
 def _target_status(invoice: Invoice, *, has_payments: bool) -> DepositStatus:
@@ -421,6 +459,7 @@ def apply_invoice_state(
     invoice: Invoice,
     payment_methods: list[InvoicePaymentMethod] | None = None,
     actor: str = AUTO_ACTOR,
+    tolerance_pct: float = 0.0,
 ) -> ApplyResult:
     """Bring a deposit in line with BTCPay's current view of its invoice.
 
@@ -481,6 +520,17 @@ def apply_invoice_state(
                 error=str(exc),
             )
     if unparseable:
+        target = DepositStatus.REVIEW
+
+    if target == DepositStatus.SETTLED and _breaches_usdt_tolerance(
+        deposit, asset, parsed, tolerance_pct=tolerance_pct
+    ):
+        logger.warning(
+            "deposit.usdt_amount_out_of_tolerance",
+            deposit_id=str(deposit.id),
+            expected=deposit.amount_expected,
+            received=sum(amount for _id, amount, _status in parsed),
+        )
         target = DepositStatus.REVIEW
 
     creditable = target == DepositStatus.SETTLED and deposit.status not in (
@@ -570,7 +620,12 @@ def _emit_events(session: Session, *, deposit: Deposit, asset: Asset, result: Ap
 
 
 def refresh_deposit(
-    session: Session, gateway: BTCPayGateway, *, deposit_id: uuid.UUID, actor: str = AUTO_ACTOR
+    session: Session,
+    gateway: BTCPayGateway,
+    *,
+    deposit_id: uuid.UUID,
+    actor: str = AUTO_ACTOR,
+    tolerance_pct: float = 0.0,
 ) -> ApplyResult:
     """Fetch the invoice from BTCPay and feed it through `apply_invoice_state`."""
     deposit = session.get(Deposit, deposit_id)

@@ -20,10 +20,13 @@ from crypto_processing_api.core import auth, idempotency
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.db import db_session
 from crypto_processing_api.gateway.btcpay_client import BTCPayClient, BTCPayGateway, build_client
+from crypto_processing_api.gateway.trongrid import TronGridClient, TronGridGateway
+from crypto_processing_api.gateway.trongrid import build_client as build_tron_client
 
 logger = get_logger(__name__)
 
 _gateway: BTCPayClient | None = None
+_tron: TronGridClient | None = None
 
 
 def get_settings_dependency() -> Settings:
@@ -47,11 +50,25 @@ def get_gateway() -> BTCPayGateway:
     return _gateway
 
 
+def get_tron_gateway() -> TronGridGateway:
+    """The one place that names `TronGridClient`. Tests override it."""
+    global _tron
+    if _tron is None:
+        settings = get_settings()
+        _tron = build_tron_client(
+            base_url=settings.tron_endpoint, api_key=settings.trongrid_api_key
+        )
+    return _tron
+
+
 def reset_gateway() -> None:
-    global _gateway
+    global _gateway, _tron
     if _gateway is not None:
         _gateway.close()
     _gateway = None
+    if _tron is not None:
+        _tron.close()
+    _tron = None
 
 
 _bearer = HTTPBearer(auto_error=False, description="cpk_live_… / cpk_test_… API key")

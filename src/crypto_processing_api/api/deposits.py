@@ -86,6 +86,9 @@ def serialize_deposit(
         "address": deposit.address,
         "checkout_link": deposit.checkout_link,
         "expires_at": deposit.expires_at.isoformat() if deposit.expires_at else None,
+        "address_reserved_until": (
+            deposit.address_reserved_until.isoformat() if deposit.address_reserved_until else None
+        ),
         "amount_expected": (
             from_units(deposit.amount_expected, decimals)
             if deposit.amount_expected is not None
@@ -139,7 +142,28 @@ def create_deposit(
         deposit_service.ensure_invoice(
             session, gateway, settings, deposit=deposit, adopt_first=context.reclaimed
         )
-    except (BTCPayValidation, BTCPayAuthError, BTCPayNotFound) as exc:
+    except BTCPayValidation as exc:
+        deposit_service.mark_failed(session, deposit=deposit, reason=str(exc))
+        session.commit()
+        if asset.id in deposit_service.POOLED_ASSETS:
+            # The USDt plugin hands out addresses from a fixed pool, so a
+            # validation failure here usually means every address is reserved.
+            # That is temporary and the platform should retry, which a 502
+            # would not tell it.
+            logger.error("deposit.pool_possibly_exhausted", asset=asset.id, error=str(exc))
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                {
+                    "code": "DEPOSIT_TEMPORARILY_UNAVAILABLE",
+                    "message": (f"no {asset.id} deposit address is free right now; retry shortly"),
+                },
+                headers={"Retry-After": "60"},
+            ) from exc
+        logger.error("deposit.invoice_rejected", deposit_id=str(deposit.id), error=str(exc))
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "BTCPay rejected the invoice request"
+        ) from exc
+    except (BTCPayAuthError, BTCPayNotFound) as exc:
         # BTCPay answered and said no. That is definite, so the intent is dead.
         deposit_service.mark_failed(session, deposit=deposit, reason=str(exc))
         session.commit()

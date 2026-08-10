@@ -23,10 +23,15 @@ from crypto_processing_api.config import Settings
 from crypto_processing_api.core.amounts import AmountError, to_units
 from crypto_processing_api.core.redaction import get_logger
 from crypto_processing_api.gateway.btcpay_client import BTCPayError, BTCPayGateway, BTCPayNotFound
+from crypto_processing_api.gateway.trongrid import TronGridError, TronGridGateway
 from crypto_processing_api.ledger.models import Asset, Deposit, DepositPayment, WalletTxoAlert
 from crypto_processing_api.services import deposits as deposit_service
 from crypto_processing_api.services import withdrawals as withdrawal_service
-from crypto_processing_api.services.backends import BtcpayPayoutBackend
+from crypto_processing_api.services.backends import (
+    BtcpayPayoutBackend,
+    ManualTronBackend,
+    TronTxVerifier,
+)
 
 logger = get_logger(__name__)
 
@@ -77,7 +82,12 @@ def sweep_deposits(
     for deposit_id in due:
         with session_factory() as session:
             try:
-                result = deposit_service.refresh_deposit(session, gateway, deposit_id=deposit_id)
+                result = deposit_service.refresh_deposit(
+                    session,
+                    gateway,
+                    deposit_id=deposit_id,
+                    tolerance_pct=settings.usdt_amount_tolerance_pct,
+                )
                 session.commit()
             except BTCPayNotFound:
                 session.rollback()
@@ -351,4 +361,57 @@ def sweep_withdrawals(
                     previous=previous.value,
                     status=refreshed.status.value,
                 )
+    return report
+
+
+def sweep_manual_withdrawals(
+    session_factory: Callable[[], Session],
+    tron: TronGridGateway,
+    settings: Settings,
+    *,
+    limit: int = 100,
+) -> WithdrawalSweepReport:
+    """Job B for operator-sent USDT.
+
+    Shares `post_settle_entry` and the same status matrix as the BTCPay path —
+    only the source of truth differs, TronGrid instead of Greenfield. Forking
+    the money code for a second asset is how two assets end up with two
+    different definitions of "settled".
+    """
+    report = WithdrawalSweepReport()
+    if not settings.tron_hot_wallet_address:
+        return report
+
+    backend = ManualTronBackend(
+        TronTxVerifier(
+            tron,
+            contract_address=settings.usdt_contract,
+            hot_wallet_address=settings.tron_hot_wallet_address,
+        )
+    )
+
+    with session_factory() as session:
+        due = withdrawal_service.due_for_manual_polling(session, limit=limit)
+
+    for withdrawal_id in due:
+        with session_factory() as session:
+            previous = withdrawal_service.get(session, withdrawal_id).status
+            try:
+                withdrawal_service.poll_manual(
+                    session,
+                    backend,
+                    withdrawal_id=withdrawal_id,
+                    required_confirmations=settings.tron_confirmations,
+                )
+                session.commit()
+            except (TronGridError, withdrawal_service.WithdrawalError) as exc:
+                session.rollback()
+                report.errors += 1
+                logger.warning(
+                    "manual_sweep.failed", withdrawal_id=str(withdrawal_id), error=str(exc)
+                )
+                continue
+            report.checked += 1
+            if withdrawal_service.get(session, withdrawal_id).status != previous:
+                report.changed += 1
     return report

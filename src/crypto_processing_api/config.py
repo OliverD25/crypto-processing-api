@@ -16,6 +16,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 Environment = Literal["development", "test", "staging", "production"]
 FeeMode = Literal["deduct", "absorb"]
 BitcoinNetwork = Literal["mainnet", "testnet", "signet", "regtest"]
+TronNetwork = Literal["mainnet", "nile"]
 
 KEY_PREFIX_LIVE = "cpk_live_"
 KEY_PREFIX_TEST = "cpk_test_"
@@ -97,7 +98,16 @@ class Settings(BaseSettings):
     btcpay_store_id: OptionalStr = None
     btcpay_webhook_secret: OptionalStr = None
 
+    tron_network: TronNetwork = "mainnet"
+    trongrid_base_url: OptionalStr = None
     trongrid_api_key: OptionalStr = None
+    usdt_contract_address: OptionalStr = None
+    tron_hot_wallet_address: OptionalStr = None
+    tron_confirmations: int = Field(default=19, ge=1)
+    gas_monitor_interval_seconds: float = Field(default=900.0, gt=0)
+    trx_alert_threshold: int = Field(default=200, ge=0)
+    usdt_amount_tolerance_pct: float = Field(default=1.0, ge=0)
+    ntfy_topic_url: OptionalStr = None
 
     @model_validator(mode="after")
     def _validate(self) -> Settings:
@@ -126,12 +136,53 @@ class Settings(BaseSettings):
                 "BITCOIN_NETWORK is not mainnet in a production environment; withdrawal "
                 "addresses would be validated against the wrong network"
             )
+        # Configuring a TRON hot wallet without a TronGrid key is the mistake
+        # worth catching: keyless access is throttled unpredictably, and the
+        # thing being throttled is the check that a withdrawal really happened.
+        if (
+            self.environment == "production"
+            and self.tron_hot_wallet_address
+            and not self.trongrid_api_key
+        ):
+            raise ValueError(
+                "TRON_HOT_WALLET_ADDRESS is set but TRONGRID_API_KEY is not; keyless "
+                "TronGrid access is rate-limited unpredictably and USDT withdrawal "
+                "verification depends on it"
+            )
         if self.deposit_monitoring_minutes < self.deposit_invoice_expiry_min_btc:
             raise ValueError(
                 "DEPOSIT_MONITORING_MINUTES below the invoice expiry means BTCPay stops "
                 "attributing payments before the invoice is even expired"
             )
         return self
+
+    @property
+    def tron_endpoint(self) -> str:
+        if self.trongrid_base_url:
+            return self.trongrid_base_url
+        return (
+            "https://nile.trongrid.io" if self.tron_network == "nile" else "https://api.trongrid.io"
+        )
+
+    @property
+    def usdt_contract(self) -> str:
+        """The configured contract, or the default for this network.
+
+        The Nile default is format-checked but not confirmed against a live
+        node, so a Nile deployment should set USDT_CONTRACT_ADDRESS explicitly
+        to whatever the USDt plugin is pointed at.
+        """
+        if self.usdt_contract_address:
+            return self.usdt_contract_address
+        return (
+            "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+            if self.tron_network == "nile"
+            else "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+        )
+
+    @property
+    def tron_configured(self) -> bool:
+        return bool(self.tron_hot_wallet_address)
 
     @property
     def btcpay_configured(self) -> bool:
