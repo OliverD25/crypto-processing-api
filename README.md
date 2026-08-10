@@ -72,6 +72,7 @@ risks, is in [`docs/security.md`](docs/security.md).
 | [`api.md`](docs/api.md) | every endpoint, every error code |
 | [`deployment.md`](docs/deployment.md) | a fresh VPS to a running deployment |
 | [`btcpay-setup.md`](docs/btcpay-setup.md) | what BTCPay needs, including the manual USDt plugin steps |
+| [`extending.md`](docs/extending.md) | adding your own asset: the four pluggable facets, and what is welded shut |
 | [`security.md`](docs/security.md) | threat model, float policy, cold sweeps |
 | [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | auditors: every control, the file it lives in, the test that proves it |
 | [`backups.md`](docs/backups.md) | continuous archiving and the restore drill |
