@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-processing-api"
+version = "0.1.0.dev0"
+description = "Single-tenant custodial crypto payment and ledger service on top of BTCPay Server"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "crypto-processing-api contributors" }]
+keywords = ["bitcoin", "btcpay", "custodial", "ledger", "double-entry", "usdt"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+]
+
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.1",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    "SQLAlchemy==2.0.51",
+    "psycopg[binary]==3.3.4",
+    "alembic==1.19.1",
+    "httpx==0.28.1",
+    "structlog==26.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.2",
+    "mypy==2.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/OliverD25/crypto-processing-api"
+Documentation = "https://github.com/OliverD25/crypto-processing-api/tree/main/docs"
+
+[project.scripts]
+crypto-processing-api = "crypto_processing_api.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crypto_processing_api"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+# The design documents are a historical record of what was decided and why.
+# Reformatting their code sketches would rewrite the record.
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "C4",  # comprehensions
+    "SIM", # simplify
+    "RUF",
+    "S",   # bandit
+]
+ignore = [
+    "S101", # asserts are how the ledger states its invariants
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+"scripts/**" = ["S105", "S106"]
+"migrations/versions/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = []
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: needs a real PostgreSQL instance (deploy/docker-compose.test.yml)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/crypto_processing_api"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
