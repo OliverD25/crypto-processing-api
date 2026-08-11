@@ -50,6 +50,10 @@ test-int: ## Integration tests against the dockerized test Postgres
 .PHONY: test
 test: test-unit test-int ## Full test suite
 
+.PHONY: contracts
+contracts: ## Regenerate the committed OpenAPI and webhook schemas
+	$(BIN)/python scripts/export_openapi.py
+
 .PHONY: cov
 cov: ## Ledger coverage gate (the CI floor)
 	$(BIN)/pytest --cov=src/crypto_processing_api/ledger --cov-report=term-missing --cov-fail-under=85

@@ -75,12 +75,19 @@ _bearer = HTTPBearer(auto_error=False, description="cpk_live_… / cpk_test_… 
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 
+#: The spec marks this parameter optional and the endpoint then refuses without
+#: it, which looks inconsistent and is deliberate: declaring it required would
+#: hand the failure to FastAPI's own request validation, which answers 422. A
+#: missing idempotency key has always answered 400, `docs/api.md` says so, and
+#: changing it would break every caller that branches on the code. The
+#: description carries the requirement instead.
 IDEMPOTENCY_HEADER_DESCRIPTION = (
-    "Required. One key per logical operation, chosen by the caller — a UUID is "
-    "the usual choice. **Retry with the same key.** A retry with a new key is a "
-    "second deposit or a second withdrawal, not a retry. The stored response is "
-    "replayed for a completed key; a key still in flight answers 409 with "
-    "`Retry-After`; the same key with a different body answers 422."
+    "**Required** — omitting it is answered with 400, not with a schema error. "
+    "One key per logical operation, chosen by the caller; a UUID is the usual "
+    "choice. **Retry with the same key.** A retry with a new key is a second "
+    "deposit or a second withdrawal, not a retry. A completed key replays its "
+    "stored response; a key still in flight answers 409 with `Retry-After`; the "
+    "same key with a different body answers 422."
 )
 
 

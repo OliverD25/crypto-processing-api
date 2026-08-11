@@ -1,0 +1,3696 @@
+{
+  "components": {
+    "schemas": {
+      "AddressHistoryResponse": {
+        "description": "Who owned a pooled address, and when. The USDT attribution query.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "reservations": {
+            "items": {
+              "$ref": "#/components/schemas/AddressReservationResponse"
+            },
+            "title": "Reservations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "address",
+          "reservations"
+        ],
+        "title": "AddressHistoryResponse",
+        "type": "object"
+      },
+      "AddressReservationResponse": {
+        "properties": {
+          "deposit_id": {
+            "title": "Deposit Id",
+            "type": "string"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "reserved_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved From"
+          },
+          "reserved_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Until"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deposit_id",
+          "external_user_id",
+          "status",
+          "reserved_from",
+          "reserved_until"
+        ],
+        "title": "AddressReservationResponse",
+        "type": "object"
+      },
+      "AdminDepositQueueResponse": {
+        "properties": {
+          "deposits": {
+            "items": {
+              "$ref": "#/components/schemas/DepositResponse"
+            },
+            "title": "Deposits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deposits"
+        ],
+        "title": "AdminDepositQueueResponse",
+        "type": "object"
+      },
+      "AdminResolveDepositResponse": {
+        "properties": {
+          "credited": {
+            "description": "What the server asked BTCPay the payment was worth. There is deliberately no amount field on the request.",
+            "title": "Credited",
+            "type": "string"
+          },
+          "deposit": {
+            "$ref": "#/components/schemas/DepositResponse"
+          }
+        },
+        "required": [
+          "deposit",
+          "credited"
+        ],
+        "title": "AdminResolveDepositResponse",
+        "type": "object"
+      },
+      "AdminWithdrawalListResponse": {
+        "properties": {
+          "withdrawals": {
+            "items": {
+              "$ref": "#/components/schemas/AdminWithdrawalResponse"
+            },
+            "title": "Withdrawals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "withdrawals"
+        ],
+        "title": "AdminWithdrawalListResponse",
+        "type": "object"
+      },
+      "AdminWithdrawalResponse": {
+        "description": "The queue view. Everything above plus who decided what.",
+        "properties": {
+          "amount_gross": {
+            "title": "Amount Gross",
+            "type": "string"
+          },
+          "amount_net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission.",
+            "title": "Amount Net"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`auto` or `manual`.",
+            "title": "Approval Mode"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "backend_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend Ref"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "destination_address": {
+            "title": "Destination Address",
+            "type": "string"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission, when the fee is fixed.",
+            "title": "Fee"
+          },
+          "rejected_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By"
+          },
+          "release_attestation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Attestation"
+          },
+          "released_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released By"
+          },
+          "status": {
+            "description": "requested, pending_approval, approved, rejected, submitting, submitted, broadcast, confirmed, failed, refunded.",
+            "title": "Status",
+            "type": "string"
+          },
+          "txid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txid"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "withdrawal_id": {
+            "title": "Withdrawal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "withdrawal_id",
+          "external_user_id",
+          "asset",
+          "status",
+          "destination_address",
+          "amount_gross",
+          "fee",
+          "amount_net",
+          "approval_mode",
+          "txid",
+          "failure_reason",
+          "created_at",
+          "updated_at",
+          "approved_by",
+          "rejected_by",
+          "released_by",
+          "release_attestation",
+          "backend_ref"
+        ],
+        "title": "AdminWithdrawalResponse",
+        "type": "object"
+      },
+      "ApproveWithdrawalRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "ApproveWithdrawalRequest",
+        "type": "object"
+      },
+      "AssetResponse": {
+        "properties": {
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "decimals": {
+            "title": "Decimals",
+            "type": "integer"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "unit_name": {
+            "title": "Unit Name",
+            "type": "string"
+          },
+          "withdrawal_auto_limit": {
+            "title": "Withdrawal Auto Limit",
+            "type": "string"
+          },
+          "withdrawal_daily_cap": {
+            "title": "Withdrawal Daily Cap",
+            "type": "string"
+          },
+          "withdrawal_flat_fee": {
+            "title": "Withdrawal Flat Fee",
+            "type": "string"
+          },
+          "withdrawal_min": {
+            "title": "Withdrawal Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "display_name",
+          "decimals",
+          "unit_name",
+          "enabled",
+          "withdrawal_min",
+          "withdrawal_auto_limit",
+          "withdrawal_daily_cap",
+          "withdrawal_flat_fee"
+        ],
+        "title": "AssetResponse",
+        "type": "object"
+      },
+      "AssetsResponse": {
+        "description": "Read this rather than hardcoding: an operator can change a limit without a deploy.",
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/AssetResponse"
+            },
+            "title": "Assets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "assets"
+        ],
+        "title": "AssetsResponse",
+        "type": "object"
+      },
+      "BalanceResponse": {
+        "properties": {
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "held": {
+            "description": "Reserved by a withdrawal. Held money physically sits in a different ledger account, so this is not arithmetic on a side table.",
+            "title": "Held",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "available",
+          "held",
+          "total"
+        ],
+        "title": "BalanceResponse",
+        "type": "object"
+      },
+      "BalancesResponse": {
+        "properties": {
+          "balances": {
+            "items": {
+              "$ref": "#/components/schemas/BalanceResponse"
+            },
+            "title": "Balances",
+            "type": "array"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_user_id",
+          "balances"
+        ],
+        "title": "BalancesResponse",
+        "type": "object"
+      },
+      "ComponentResponse": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the component is degraded, or for the workers.",
+            "title": "Detail"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "`ok` or `degraded`.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "ComponentResponse",
+        "type": "object"
+      },
+      "CreateDepositRequest": {
+        "properties": {
+          "asset": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Asset",
+            "type": "string"
+          },
+          "expected_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display only, integer smallest units as a string. Top-up invoices credit whatever arrives.",
+            "title": "Expected Amount"
+          },
+          "external_user_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "External User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_user_id",
+          "asset"
+        ],
+        "title": "CreateDepositRequest",
+        "type": "object"
+      },
+      "CreateWithdrawalRequest": {
+        "properties": {
+          "amount": {
+            "description": "Gross amount in integer smallest units, as a string",
+            "title": "Amount",
+            "type": "string"
+          },
+          "asset": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Asset",
+            "type": "string"
+          },
+          "destination_address": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Destination Address",
+            "type": "string"
+          },
+          "external_user_id": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "External User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "external_user_id",
+          "asset",
+          "amount",
+          "destination_address"
+        ],
+        "title": "CreateWithdrawalRequest",
+        "type": "object"
+      },
+      "CustodyLineResponse": {
+        "description": "One asset's answer to: is there still enough on chain to cover what users are owed?",
+        "properties": {
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "chain_balance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` means the source could not be reached. Not the same as zero.",
+            "title": "Chain Balance"
+          },
+          "chain_source": {
+            "title": "Chain Source",
+            "type": "string"
+          },
+          "difference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chain minus what the ledger says. Negative is bad.",
+            "title": "Difference"
+          },
+          "expected_shortfall": {
+            "description": "Derived from in-flight postings, not a tuned epsilon.",
+            "title": "Expected Shortfall",
+            "type": "string"
+          },
+          "insolvent": {
+            "title": "Insolvent",
+            "type": "boolean"
+          },
+          "ledger_custody": {
+            "title": "Ledger Custody",
+            "type": "string"
+          },
+          "ledger_in_flight": {
+            "title": "Ledger In Flight",
+            "type": "string"
+          },
+          "user_obligations": {
+            "title": "User Obligations",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "ledger_custody",
+          "ledger_in_flight",
+          "user_obligations",
+          "chain_balance",
+          "chain_source",
+          "expected_shortfall",
+          "difference",
+          "insolvent"
+        ],
+        "title": "CustodyLineResponse",
+        "type": "object"
+      },
+      "DepositListResponse": {
+        "properties": {
+          "deposits": {
+            "items": {
+              "$ref": "#/components/schemas/DepositResponse"
+            },
+            "title": "Deposits",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Keyset cursor. `null` on the last page — a page boundary cannot shift under an insert.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "deposits",
+          "next_cursor"
+        ],
+        "title": "DepositListResponse",
+        "type": "object"
+      },
+      "DepositPaymentResponse": {
+        "description": "One on-chain payment against a deposit invoice.",
+        "properties": {
+          "after_expiration": {
+            "description": "The payment arrived after the invoice expired, so a human decided it.",
+            "title": "After Expiration",
+            "type": "boolean"
+          },
+          "amount": {
+            "description": "Decimal string in the asset's display units.",
+            "title": "Amount",
+            "type": "string"
+          },
+          "credited": {
+            "title": "Credited",
+            "type": "boolean"
+          },
+          "credited_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credited At"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`auto`, or the api-key id of the admin who resolved it.",
+            "title": "Resolved By"
+          }
+        },
+        "required": [
+          "payment_id",
+          "amount",
+          "credited",
+          "credited_at",
+          "after_expiration",
+          "resolved_by"
+        ],
+        "title": "DepositPaymentResponse",
+        "type": "object"
+      },
+      "DepositResponse": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the user pays. An on-chain address, or a BOLT11 invoice for BTC_LN.",
+            "title": "Address"
+          },
+          "address_reserved_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pooled assets only: when this address goes back to the pool.",
+            "title": "Address Reserved Until"
+          },
+          "amount_credited": {
+            "title": "Amount Credited",
+            "type": "string"
+          },
+          "amount_expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Display only for BTC. Load-bearing for USDT: a payment far from it goes to an operator instead of being credited.",
+            "title": "Amount Expected"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "checkout_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkout Link"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deposit_id": {
+            "title": "Deposit Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/DepositPaymentResponse"
+            },
+            "title": "Payments",
+            "type": "array"
+          },
+          "status": {
+            "description": "creating, pending, confirming, settled, expired, review, dismissed, failed.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deposit_id",
+          "external_user_id",
+          "asset",
+          "status",
+          "address",
+          "checkout_link",
+          "expires_at",
+          "address_reserved_until",
+          "amount_expected",
+          "amount_credited",
+          "created_at",
+          "payments"
+        ],
+        "title": "DepositResponse",
+        "type": "object"
+      },
+      "DepositUnavailableDetail": {
+        "description": "The one error with a machine-readable code.\n\nA pooled asset hands out addresses from a fixed set. When they are all\nreserved the answer is temporary, so it carries a code the caller can\nbranch on and a `Retry-After` header, rather than looking like a bad\nrequest.",
+        "properties": {
+          "code": {
+            "examples": [
+              "DEPOSIT_TEMPORARILY_UNAVAILABLE"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DepositUnavailableDetail",
+        "type": "object"
+      },
+      "DepositUnavailableResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/DepositUnavailableDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "DepositUnavailableResponse",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The error envelope. Every failure that is not a request-shape failure.",
+        "properties": {
+          "detail": {
+            "description": "Human-readable reason. Not a stable machine identifier.",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "database": {
+            "title": "Database",
+            "type": "string"
+          },
+          "status": {
+            "description": "`ok`, or `unhealthy` with a 503.",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "database",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "MarkBroadcastRequest": {
+        "description": "The operator reporting what they sent.\n\nA transaction id and nothing else. There is deliberately no amount and no\ndestination field: those are already on the withdrawal, and the server\nchecks the chain against them rather than against anything typed here.",
+        "properties": {
+          "txid": {
+            "maxLength": 128,
+            "minLength": 16,
+            "title": "Txid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "txid"
+        ],
+        "title": "MarkBroadcastRequest",
+        "type": "object"
+      },
+      "OutboundEventResponse": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The `evt_`-prefixed id the platform dedups on.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "next_attempt_at": {
+            "title": "Next Attempt At",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "The event body. Its shape per event type is in `docs/reference/webhook-events.json`.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "raw_id": {
+            "title": "Raw Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "`pending`, `delivered` or `dead`.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "raw_id",
+          "type",
+          "status",
+          "attempts",
+          "next_attempt_at",
+          "last_error",
+          "created_at",
+          "payload"
+        ],
+        "title": "OutboundEventResponse",
+        "type": "object"
+      },
+      "OutboundEventsResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/OutboundEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "OutboundEventsResponse",
+        "type": "object"
+      },
+      "ReadyResponse": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentResponse"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "status": {
+            "description": "`ready`, or `degraded` with a 503.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "components"
+        ],
+        "title": "ReadyResponse",
+        "type": "object"
+      },
+      "ReconciliationResponse": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "custody": {
+            "items": {
+              "$ref": "#/components/schemas/CustodyLineResponse"
+            },
+            "title": "Custody",
+            "type": "array"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "ledger_consistent": {
+            "title": "Ledger Consistent",
+            "type": "boolean"
+          },
+          "materialized_vs_derived_drifts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Materialized Vs Derived Drifts",
+            "type": "array"
+          },
+          "unbalanced_entries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unbalanced Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "healthy",
+          "ledger_consistent",
+          "materialized_vs_derived_drifts",
+          "unbalanced_entries",
+          "alerts",
+          "custody"
+        ],
+        "title": "ReconciliationResponse",
+        "type": "object"
+      },
+      "RedeliverEventResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "RedeliverEventResponse",
+        "type": "object"
+      },
+      "RejectWithdrawalRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "RejectWithdrawalRequest",
+        "type": "object"
+      },
+      "ReleaseWithdrawalRequest": {
+        "description": "A release after submission is an assertion about the chain.\n\nThe operator is stating that they looked and the transaction will not\narrive — it was never broadcast, or it was double-spent. The text is stored\non the withdrawal so the decision has an author and a reason.",
+        "properties": {
+          "attestation": {
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Attestation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attestation"
+        ],
+        "title": "ReleaseWithdrawalRequest",
+        "type": "object"
+      },
+      "ResolveDepositRequest": {
+        "description": "No amount field, deliberately.\n\nThe whole deposit pipeline insists that a webhook payload is never an\namount source; a human typing one at 2am is not a better source. The admin\nconfirms attribution — which deposit, which payment — and the server asks\nBTCPay what that payment was worth.",
+        "properties": {
+          "action": {
+            "enum": [
+              "credit",
+              "dismiss"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ResolveDepositRequest",
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "properties": {
+          "account": {
+            "description": "`user_available` or `user_hold`.",
+            "title": "Account",
+            "type": "string"
+          },
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "direction": {
+            "description": "`credit` or `debit`, from the user's point of view: a deposit reads positive and a withdrawal hold negative.",
+            "title": "Direction",
+            "type": "string"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "memo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          },
+          "posting_id": {
+            "title": "Posting Id",
+            "type": "integer"
+          },
+          "source_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ref"
+          }
+        },
+        "required": [
+          "posting_id",
+          "entry_id",
+          "kind",
+          "asset",
+          "account",
+          "amount",
+          "direction",
+          "source_ref",
+          "memo",
+          "created_at"
+        ],
+        "title": "TransactionResponse",
+        "type": "object"
+      },
+      "TransactionsResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "transactions",
+          "next_cursor"
+        ],
+        "title": "TransactionsResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationErrorResponse": {
+        "description": "A 422 has two sources and two shapes.\n\nA business rule (a dust amount, a destination the asset's validator\nrefuses, an idempotency key reused with a different body) answers with a\nstring. A request that does not fit the request model answers with\nFastAPI's list of field errors.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ValidationErrorResponse",
+        "type": "object"
+      },
+      "WalletAlertResponse": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "confirmations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmations"
+          },
+          "detected_at": {
+            "title": "Detected At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "txid": {
+            "title": "Txid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "asset",
+          "txid",
+          "amount",
+          "confirmations",
+          "detected_at",
+          "note"
+        ],
+        "title": "WalletAlertResponse",
+        "type": "object"
+      },
+      "WalletAlertsResponse": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/WalletAlertResponse"
+            },
+            "title": "Alerts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "alerts"
+        ],
+        "title": "WalletAlertsResponse",
+        "type": "object"
+      },
+      "WebhookAckResponse": {
+        "description": "Ack then process. `reason` is present only when the event was ignored.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "description": "`accepted` or `ignored`.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "WebhookAckResponse",
+        "type": "object"
+      },
+      "WithdrawalCreatedResponse": {
+        "description": "The 201 body. `approval_reason` is present only when a gate fired.",
+        "properties": {
+          "amount_gross": {
+            "title": "Amount Gross",
+            "type": "string"
+          },
+          "amount_net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission.",
+            "title": "Amount Net"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`auto` or `manual`.",
+            "title": "Approval Mode"
+          },
+          "approval_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which gate sent this to the approval queue: the per-withdrawal auto-approval limit, the rolling 24-hour cap, or a per-user cap.",
+            "title": "Approval Reason"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "destination_address": {
+            "title": "Destination Address",
+            "type": "string"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission, when the fee is fixed.",
+            "title": "Fee"
+          },
+          "status": {
+            "description": "requested, pending_approval, approved, rejected, submitting, submitted, broadcast, confirmed, failed, refunded.",
+            "title": "Status",
+            "type": "string"
+          },
+          "txid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txid"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "withdrawal_id": {
+            "title": "Withdrawal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "withdrawal_id",
+          "external_user_id",
+          "asset",
+          "status",
+          "destination_address",
+          "amount_gross",
+          "fee",
+          "amount_net",
+          "approval_mode",
+          "txid",
+          "failure_reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WithdrawalCreatedResponse",
+        "type": "object"
+      },
+      "WithdrawalListResponse": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "withdrawals": {
+            "items": {
+              "$ref": "#/components/schemas/WithdrawalResponse"
+            },
+            "title": "Withdrawals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "withdrawals",
+          "next_cursor"
+        ],
+        "title": "WithdrawalListResponse",
+        "type": "object"
+      },
+      "WithdrawalResponse": {
+        "properties": {
+          "amount_gross": {
+            "title": "Amount Gross",
+            "type": "string"
+          },
+          "amount_net": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission.",
+            "title": "Amount Net"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`auto` or `manual`.",
+            "title": "Approval Mode"
+          },
+          "asset": {
+            "title": "Asset",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "destination_address": {
+            "title": "Destination Address",
+            "type": "string"
+          },
+          "external_user_id": {
+            "title": "External User Id",
+            "type": "string"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`null` until submission, when the fee is fixed.",
+            "title": "Fee"
+          },
+          "status": {
+            "description": "requested, pending_approval, approved, rejected, submitting, submitted, broadcast, confirmed, failed, refunded.",
+            "title": "Status",
+            "type": "string"
+          },
+          "txid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txid"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "withdrawal_id": {
+            "title": "Withdrawal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "withdrawal_id",
+          "external_user_id",
+          "asset",
+          "status",
+          "destination_address",
+          "amount_gross",
+          "fee",
+          "amount_net",
+          "approval_mode",
+          "txid",
+          "failure_reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WithdrawalResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "description": "cpk_live_… / cpk_test_… API key",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "crypto-processing-api",
+      "url": "https://github.com/OliverD25/crypto-processing-api"
+    },
+    "description": "The accounting layer BTCPay Server does not have: per-user custodial balances,\ndeposits and withdrawals over a small authenticated JSON API, backed by an\nappend-only double-entry ledger.\n\n**Amounts are decimal strings, always** — `\"0.50000000\"`, `\"199.000000\"` —\nnever JSON numbers, because 21 million BTC in satoshis is past JavaScript's\nsafe integer range. The two request fields `expected_amount` and `amount` are\ninteger strings of the asset's smallest unit (`\"50000000\"`).\n\n**Timestamps are ISO 8601 with an explicit `+00:00` offset.**\n\n**Auth** is `Authorization: Bearer cpk_live_…`. Two scopes: `readwrite` for\nplatform calls, `admin` for operator calls. An admin key also satisfies\n`readwrite`.\n\n**Every mutating endpoint requires an `Idempotency-Key` header**, and a retry\nmust reuse the same key. A new key is a second deposit or a second withdrawal.\n\n**Errors** are `{\"detail\": \"...\"}`. The one exception is a pooled-address\ndeposit failure, which uses a structured `detail` object carrying a `code`.\n\n**Every response carries `Cache-Control: no-store`.**\n\nThe outbound webhook payloads this service sends are documented separately, in\n`docs/reference/webhook-events.json`.\n",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "summary": "Custodial crypto payment and ledger service on top of BTCPay Server",
+    "title": "crypto-processing-api",
+    "version": "0.1.1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "The database is unreachable. Nothing else is checked here."
+          }
+        },
+        "summary": "Process and database liveness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Everything `/healthz` deliberately leaves out.\n\nBTCPay restarts are routine on a shared box, and TronGrid is a third party\non a free tier. Neither should be able to make this service look down, so\nthey are reported here instead, where an operator can look without an\nuptime pinger restarting the API over it.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            },
+            "description": "At least one component is degraded. The body names which."
+          }
+        },
+        "summary": "Component readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/v1/admin/deposits/review": {
+      "get": {
+        "operationId": "adminReviewQueue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminDepositQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deposits waiting for a human",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/deposits/{deposit_id}/resolve": {
+      "post": {
+        "operationId": "adminResolveDeposit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deposit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deposit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveDepositRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminResolveDepositResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A dependency is unreachable, or the asset is unavailable. Retryable with the **same** `Idempotency-Key`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Credit or dismiss a deposit under review",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/events": {
+      "get": {
+        "description": "The outbound queue, usually read with `?status=dead`.",
+        "operationId": "adminListEvents",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboundEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The outbound event queue",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/events/{event_id}/redeliver": {
+      "post": {
+        "description": "Put a dead event back in the queue.\n\nDead events are never deleted, so this is always possible once whatever\nbroke on the platform side is fixed.",
+        "operationId": "adminRedeliverEvent",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeliverEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put a dead event back in the queue",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/reconciliation": {
+      "get": {
+        "description": "The same computation Job C runs hourly, on demand.\n\nReading this after an incident is the fastest way to answer the only\nquestion that matters: is there still enough on chain to cover what users\nare owed?",
+        "operationId": "adminReconciliation",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The ledger and custody report Job C runs hourly",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/wallet-alerts": {
+      "get": {
+        "description": "Wallet receives that match no deposit payment.\n\nThese are coins in custody that no user has been credited for — usually a\npayment to an address BTCPay has stopped watching. Job C's aggregate check\ncannot see them, because extra money in the wallet reads as healthy.",
+        "operationId": "adminWalletAlerts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletAlertsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Wallet receives that match no deposit payment",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/withdrawals": {
+      "get": {
+        "operationId": "adminWithdrawalQueue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWithdrawalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The withdrawal queue, usually read with ?status=pending_approval",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/withdrawals/{withdrawal_id}/approve": {
+      "post": {
+        "operationId": "adminApproveWithdrawal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "withdrawal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Withdrawal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveWithdrawalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve a queued withdrawal",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/withdrawals/{withdrawal_id}/mark-broadcast": {
+      "post": {
+        "description": "Record the transaction the operator sent, after verifying it on chain.\n\nRejection here is a good outcome, not an error to work around: it means the\npasted id is not a USDT transfer of this amount from our hot wallet to this\ndestination. The withdrawal stays exactly where it was.",
+        "operationId": "adminMarkBroadcast",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "withdrawal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Withdrawal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkBroadcastRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A dependency is unreachable, or the asset is unavailable. Retryable with the **same** `Idempotency-Key`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record an operator-sent transaction, after verifying it on chain",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/withdrawals/{withdrawal_id}/reject": {
+      "post": {
+        "operationId": "adminRejectWithdrawal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "withdrawal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Withdrawal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectWithdrawalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reject a queued withdrawal and refund immediately",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/admin/withdrawals/{withdrawal_id}/release": {
+      "post": {
+        "description": "Give a hold back after a payout may already exist.\n\nNever automatic, and never derived from a backend status. The scenario is\na payout stuck in the mempool: call it failed, refund the user, and then\nwatch the original transaction confirm.",
+        "operationId": "adminReleaseWithdrawal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "withdrawal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Withdrawal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseWithdrawalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Return a hold after a payout may already exist",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/v1/assets": {
+      "get": {
+        "description": "Reference data for integrators: what is enabled and what the limits are.",
+        "operationId": "listAssets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enabled assets, their decimals and their limits",
+        "tags": [
+          "balances"
+        ]
+      }
+    },
+    "/v1/deposits": {
+      "post": {
+        "operationId": "createDeposit",
+        "parameters": [
+          {
+            "description": "**Required** — omitting it is answered with 400, not with a schema error. One key per logical operation, chosen by the caller; a UUID is the usual choice. **Retry with the same key.** A retry with a new key is a second deposit or a second withdrawal, not a retry. A completed key replays its stored response; a key still in flight answers 409 with `Retry-After`; the same key with a different body answers 422.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "**Required** — omitting it is answered with 400, not with a schema error. One key per logical operation, chosen by the caller; a UUID is the usual choice. **Retry with the same key.** A retry with a new key is a second deposit or a second withdrawal, not a retry. A completed key replays its stored response; a key still in flight answers 409 with `Retry-After`; the same key with a different body answers 422.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDepositRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepositResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The `Idempotency-Key` header is missing or malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "BTCPay answered and refused. The intent is dead; a retry will not help."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepositUnavailableResponse"
+                }
+              }
+            },
+            "description": "Every address in the pool is reserved, or BTCPay is unreachable. Retryable with the **same** `Idempotency-Key`; honour `Retry-After`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create a deposit and its BTCPay invoice",
+        "tags": [
+          "deposits"
+        ]
+      }
+    },
+    "/v1/deposits/{deposit_id}": {
+      "get": {
+        "operationId": "getDeposit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deposit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deposit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepositResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read one deposit and its payments",
+        "tags": [
+          "deposits"
+        ]
+      }
+    },
+    "/v1/deposits/{deposit_id}/address-history": {
+      "get": {
+        "description": "Every deposit that has held this deposit's address, and when.\n\nOnly interesting for pooled assets. It is the query the USDT attribution\nrunbook runs: given a transfer that arrived at time T, which user actually\nowned the address then?",
+        "operationId": "getAddressHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "deposit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Deposit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Who held this deposit's address, and when",
+        "tags": [
+          "balances"
+        ]
+      }
+    },
+    "/v1/users/{external_user_id}/balances": {
+      "get": {
+        "description": "Per-asset available, held and total.\n\nUser accounts are credit-normal, so their stored balance is negative and\nthe sign is flipped here. `held` is not arithmetic on a side table: a hold\nphysically moved the money between two accounts, so there is nothing to get\nwrong at read time.",
+        "operationId": "getUserBalances",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "external_user_id",
+            "required": true,
+            "schema": {
+              "title": "External User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BalancesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Per-asset available, held and total",
+        "tags": [
+          "balances"
+        ]
+      }
+    },
+    "/v1/users/{external_user_id}/deposits": {
+      "get": {
+        "operationId": "listUserDeposits",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "external_user_id",
+            "required": true,
+            "schema": {
+              "title": "External User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepositListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List a user's deposits, newest first",
+        "tags": [
+          "deposits"
+        ]
+      }
+    },
+    "/v1/users/{external_user_id}/transactions": {
+      "get": {
+        "description": "Ledger history from the user's point of view.\n\nAmounts are negated relative to the stored posting, so a deposit reads as\npositive and a withdrawal hold as negative — the user's perspective, not\nthe book's.",
+        "operationId": "getUserTransactions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "external_user_id",
+            "required": true,
+            "schema": {
+              "title": "External User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ledger history from the user's point of view",
+        "tags": [
+          "balances"
+        ]
+      }
+    },
+    "/v1/users/{external_user_id}/withdrawals": {
+      "get": {
+        "operationId": "listUserWithdrawals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "external_user_id",
+            "required": true,
+            "schema": {
+              "title": "External User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List a user's withdrawals, newest first",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/v1/withdrawals": {
+      "post": {
+        "description": "The hold is placed before the response returns, so `pending_approval` is not a rejection — the funds are already reserved.",
+        "operationId": "createWithdrawal",
+        "parameters": [
+          {
+            "description": "**Required** — omitting it is answered with 400, not with a schema error. One key per logical operation, chosen by the caller; a UUID is the usual choice. **Retry with the same key.** A retry with a new key is a second deposit or a second withdrawal, not a retry. A completed key replays its stored response; a key still in flight answers 409 with `Retry-After`; the same key with a different body answers 422.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "**Required** — omitting it is answered with 400, not with a schema error. One key per logical operation, chosen by the caller; a UUID is the usual choice. **Retry with the same key.** A retry with a new key is a second deposit or a second withdrawal, not a retry. A completed key replays its stored response; a key still in flight answers 409 with `Retry-After`; the same key with a different body answers 422.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWithdrawalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalCreatedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The `Idempotency-Key` header is missing or malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not enough available balance. Held funds do not count."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request with this `Idempotency-Key` is still in flight, or the state transition is illegal from the current status."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A business rule refused the request, or the request body does not fit the model, or an `Idempotency-Key` was reused with a different body."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request a withdrawal and reserve the balance",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/v1/withdrawals/{withdrawal_id}": {
+      "get": {
+        "operationId": "getWithdrawal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "withdrawal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Withdrawal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A valid key with the wrong scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "No such resource, or no such asset."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read one withdrawal",
+        "tags": [
+          "withdrawals"
+        ]
+      }
+    },
+    "/webhooks/btcpay": {
+      "post": {
+        "operationId": "btcpayWebhook",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The `Idempotency-Key` header is missing or malformed."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing, malformed, revoked or expired API key."
+          }
+        },
+        "summary": "BTCPay's webhook ingress",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Create a deposit and follow it to `settled`.",
+      "name": "deposits"
+    },
+    {
+      "description": "Request a withdrawal. The hold is placed with it.",
+      "name": "withdrawals"
+    },
+    {
+      "description": "Balances, ledger history and asset reference data.",
+      "name": "balances"
+    },
+    {
+      "description": "The review and approval queues, the outbound queue, and the custody report. Needs an `admin` key.",
+      "name": "admin"
+    },
+    {
+      "description": "Liveness and component readiness. No key needed.",
+      "name": "health"
+    },
+    {
+      "description": "BTCPay's ingress. Authenticated by HMAC over the raw body, never by an API key.",
+      "name": "webhooks"
+    }
+  ]
+}

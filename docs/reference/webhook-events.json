@@ -1,0 +1,563 @@
+{
+  "$defs": {
+    "DepositDetectedData": {
+      "description": "A payment is visible. It is **not** credited yet — `amount_credited` may still be zero.",
+      "properties": {
+        "amount_credited": {
+          "description": "Decimal string, the running total credited to the user for this deposit.",
+          "title": "Amount Credited",
+          "type": "string"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "deposit_id": {
+          "title": "Deposit Id",
+          "type": "string"
+        },
+        "external_user_id": {
+          "title": "External User Id",
+          "type": "string"
+        },
+        "payments": {
+          "description": "BTCPay payment ids recorded by this update.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Payments",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deposit_id",
+        "external_user_id",
+        "asset",
+        "status",
+        "amount_credited",
+        "payments"
+      ],
+      "title": "DepositDetectedData",
+      "type": "object"
+    },
+    "DepositDetectedEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/DepositDetectedData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "deposit.detected",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "DepositDetectedEvent",
+      "type": "object"
+    },
+    "DepositEventData": {
+      "properties": {
+        "amount_credited": {
+          "description": "Decimal string, the running total credited to the user for this deposit.",
+          "title": "Amount Credited",
+          "type": "string"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "deposit_id": {
+          "title": "Deposit Id",
+          "type": "string"
+        },
+        "external_user_id": {
+          "title": "External User Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deposit_id",
+        "external_user_id",
+        "asset",
+        "status",
+        "amount_credited"
+      ],
+      "title": "DepositEventData",
+      "type": "object"
+    },
+    "DepositExpiredEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/DepositEventData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "deposit.expired",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "DepositExpiredEvent",
+      "type": "object"
+    },
+    "DepositReviewRequiredEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/DepositEventData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "deposit.review_required",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "DepositReviewRequiredEvent",
+      "type": "object"
+    },
+    "DepositSettledEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/DepositEventData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "deposit.settled",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "DepositSettledEvent",
+      "type": "object"
+    },
+    "WithdrawalBroadcastEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/WithdrawalEventData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "withdrawal.broadcast",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "WithdrawalBroadcastEvent",
+      "type": "object"
+    },
+    "WithdrawalCompletedEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/WithdrawalEventData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "withdrawal.completed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "WithdrawalCompletedEvent",
+      "type": "object"
+    },
+    "WithdrawalDecisionData": {
+      "description": "A withdrawal that stopped, or stopped to wait. The reason is always present.\n\nEvery path that queues a withdrawal names the gate that fired, and every\npath that fails one names why, so this field is required rather than\noptional — a `withdrawal.failed` with no reason would be the one event an\noperator cannot act on.",
+      "properties": {
+        "amount_gross": {
+          "title": "Amount Gross",
+          "type": "string"
+        },
+        "amount_net": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` until submission fixes the fee.",
+          "title": "Amount Net"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "destination_address": {
+          "title": "Destination Address",
+          "type": "string"
+        },
+        "external_user_id": {
+          "title": "External User Id",
+          "type": "string"
+        },
+        "fee": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` until submission fixes the fee.",
+          "title": "Fee"
+        },
+        "reason": {
+          "description": "For `pending_approval`, which gate fired. For `failed`, why it will not proceed — including a machine-generated definitive-failure proof where the backend can produce one.",
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "txid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Txid"
+        },
+        "withdrawal_id": {
+          "title": "Withdrawal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "withdrawal_id",
+        "external_user_id",
+        "asset",
+        "status",
+        "amount_gross",
+        "amount_net",
+        "fee",
+        "destination_address",
+        "txid",
+        "reason"
+      ],
+      "title": "WithdrawalDecisionData",
+      "type": "object"
+    },
+    "WithdrawalEventData": {
+      "properties": {
+        "amount_gross": {
+          "title": "Amount Gross",
+          "type": "string"
+        },
+        "amount_net": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` until submission fixes the fee.",
+          "title": "Amount Net"
+        },
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "destination_address": {
+          "title": "Destination Address",
+          "type": "string"
+        },
+        "external_user_id": {
+          "title": "External User Id",
+          "type": "string"
+        },
+        "fee": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` until submission fixes the fee.",
+          "title": "Fee"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "txid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Txid"
+        },
+        "withdrawal_id": {
+          "title": "Withdrawal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "withdrawal_id",
+        "external_user_id",
+        "asset",
+        "status",
+        "amount_gross",
+        "amount_net",
+        "fee",
+        "destination_address",
+        "txid"
+      ],
+      "title": "WithdrawalEventData",
+      "type": "object"
+    },
+    "WithdrawalFailedEvent": {
+      "description": "**The money is not back yet.** A failed withdrawal still holds the balance.",
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/WithdrawalDecisionData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "withdrawal.failed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "WithdrawalFailedEvent",
+      "type": "object"
+    },
+    "WithdrawalPendingApprovalEvent": {
+      "properties": {
+        "created_at": {
+          "examples": [
+            "2026-08-10T13:11:02+00:00"
+          ],
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/$defs/WithdrawalDecisionData"
+        },
+        "id": {
+          "description": "Stable and `evt_`-prefixed. Dedup on it: the same id may arrive twice.",
+          "examples": [
+            "evt_019f3c1e-0a2b-7c4d-8e5f-6a7b8c9d0e1f"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "withdrawal.pending_approval",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "type",
+        "data"
+      ],
+      "title": "WithdrawalPendingApprovalEvent",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "deposit.detected": "#/$defs/DepositDetectedEvent",
+      "deposit.expired": "#/$defs/DepositExpiredEvent",
+      "deposit.review_required": "#/$defs/DepositReviewRequiredEvent",
+      "deposit.settled": "#/$defs/DepositSettledEvent",
+      "withdrawal.broadcast": "#/$defs/WithdrawalBroadcastEvent",
+      "withdrawal.completed": "#/$defs/WithdrawalCompletedEvent",
+      "withdrawal.failed": "#/$defs/WithdrawalFailedEvent",
+      "withdrawal.pending_approval": "#/$defs/WithdrawalPendingApprovalEvent"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DepositDetectedEvent"
+    },
+    {
+      "$ref": "#/$defs/DepositSettledEvent"
+    },
+    {
+      "$ref": "#/$defs/DepositReviewRequiredEvent"
+    },
+    {
+      "$ref": "#/$defs/DepositExpiredEvent"
+    },
+    {
+      "$ref": "#/$defs/WithdrawalPendingApprovalEvent"
+    },
+    {
+      "$ref": "#/$defs/WithdrawalBroadcastEvent"
+    },
+    {
+      "$ref": "#/$defs/WithdrawalCompletedEvent"
+    },
+    {
+      "$ref": "#/$defs/WithdrawalFailedEvent"
+    }
+  ],
+  "title": "crypto-processing-api outbound webhook events"
+}

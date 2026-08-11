@@ -144,6 +144,32 @@ jobs:
             exit 1
           fi
 
+  contracts:
+    name: published contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Two generated files feed the SDKs: the OpenAPI document and the JSON
+      # Schema of the outbound webhook events. Neither has a runtime test that
+      # would notice it going stale — a route or a payload can change and the
+      # committed spec simply describes the old one, and the generated client
+      # then disagrees with the server in the field. This is the only thing
+      # that notices.
+      - name: The committed contracts must be what the code produces
+        run: python scripts/export_openapi.py --check
+      # Belt and braces: --check compares content, this catches anything that
+      # rewrites the files without changing what the script would write (a line
+      # ending, an editor's trailing newline).
+      - name: The working tree must be clean after a regeneration
+        run: |
+          python scripts/export_openapi.py
+          git diff --exit-code -- docs/reference
+
   semgrep:
     name: semgrep
     runs-on: ubuntu-latest

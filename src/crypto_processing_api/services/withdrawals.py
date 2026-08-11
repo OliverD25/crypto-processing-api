@@ -405,8 +405,14 @@ def place_hold(
 
 def _event_payload(
     withdrawal: Withdrawal, asset: Asset, *, reason: str | None = None
-) -> dict[str, object]:
-    payload: dict[str, object] = {
+) -> dict[str, Any]:
+    """Build the outbound payload through the published model.
+
+    A field that is not declared in `services/events.py` is dropped here rather
+    than reaching an integrator, which is what keeps the exported webhook
+    schema honest — see that module's docstring.
+    """
+    fields: dict[str, Any] = {
         "withdrawal_id": str(withdrawal.id),
         "external_user_id": withdrawal.external_user_id,
         "asset": asset.id,
@@ -426,8 +432,8 @@ def _event_payload(
         "txid": withdrawal.txid,
     }
     if reason:
-        payload["reason"] = reason
-    return payload
+        return events.WithdrawalDecisionData(**fields, reason=reason).model_dump()
+    return events.WithdrawalEventData(**fields).model_dump()
 
 
 def _transition(withdrawal: Withdrawal, target: WithdrawalStatus) -> bool:

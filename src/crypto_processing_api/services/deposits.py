@@ -628,26 +628,28 @@ def apply_invoice_state(
 
 
 def _emit_events(session: Session, *, deposit: Deposit, asset: Asset, result: ApplyResult) -> None:
-    base = {
-        "deposit_id": str(deposit.id),
-        "external_user_id": deposit.external_user_id,
-        "asset": asset.id,
-        "status": deposit.status.value,
-        "amount_credited": from_units(deposit.amount_credited, asset.decimals),
-    }
+    # Through the model, not around it: a field that is not declared on
+    # `DepositEventData` is dropped here and can never reach an integrator
+    # without also appearing in the exported schema.
+    base = events.DepositEventData(
+        deposit_id=str(deposit.id),
+        external_user_id=deposit.external_user_id,
+        asset=asset.id,
+        status=deposit.status.value,
+        amount_credited=from_units(deposit.amount_credited, asset.decimals),
+    )
     if result.recorded_payments:
-        events.emit(
-            session,
-            event_type=events.DEPOSIT_DETECTED,
-            payload={**base, "payments": result.recorded_payments},
+        detected = events.DepositDetectedData(
+            **base.model_dump(), payments=result.recorded_payments
         )
+        events.emit(session, event_type=events.DEPOSIT_DETECTED, payload=detected.model_dump())
     if result.previous_status != result.status:
         if result.status == DepositStatus.SETTLED:
-            events.emit(session, event_type=events.DEPOSIT_SETTLED, payload=base)
+            events.emit(session, event_type=events.DEPOSIT_SETTLED, payload=base.model_dump())
         elif result.status == DepositStatus.REVIEW:
-            events.emit(session, event_type=events.DEPOSIT_REVIEW, payload=base)
+            events.emit(session, event_type=events.DEPOSIT_REVIEW, payload=base.model_dump())
         elif result.status == DepositStatus.EXPIRED:
-            events.emit(session, event_type=events.DEPOSIT_EXPIRED, payload=base)
+            events.emit(session, event_type=events.DEPOSIT_EXPIRED, payload=base.model_dump())
 
 
 def refresh_deposit(
