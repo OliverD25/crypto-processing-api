@@ -198,3 +198,64 @@ def test_flat_fee_quote() -> None:
 def test_flat_fee_larger_than_the_amount_is_refused() -> None:
     with pytest.raises(fees.DustAmount):
         fees.flat_fee_quote(gross=500_000, flat_fee=1_000_000)
+
+
+def test_a_flat_fee_that_leaves_only_dust_is_refused() -> None:
+    """The fee being smaller than the amount is not enough on its own: what
+    reaches the destination still has to be worth sending."""
+    with pytest.raises(fees.DustAmount, match="only 400 units"):
+        fees.flat_fee_quote(gross=1_400, flat_fee=1_000, dust_threshold=546)
+
+
+@pytest.mark.parametrize(
+    ("payload", "why"),
+    [
+        ({"halfHourFee": 0, "hourFee": 0}, "zero would price every payout at nothing"),
+        ({"halfHourFee": -5}, "a negative rate is not a rate"),
+        ({"halfHourFee": "thirty"}, "a string where a number belongs"),
+        ({}, "the shape changed and the field is gone"),
+    ],
+)
+def test_a_nonsense_rate_from_mempool_space_falls_through(
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any], why: str
+) -> None:
+    """A third party on a free endpoint is not trusted to be sane. Reaching the
+    static floor is loud in the logs; using a zero rate would be silent."""
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None: ...
+
+        def json(self) -> dict[str, Any]:
+            return payload
+
+    monkeypatch.setattr(fees.httpx, "get", lambda *a, **k: Response())
+    rate, source = fees.estimate_sat_per_vb(
+        RateGateway(None),
+        make_settings(
+            mempool_space_url="https://mempool.test/fees", btc_fallback_fee_sat_per_vb=20
+        ),
+        payment_method_id=BTC_METHOD,
+    )
+    assert (rate, source) == (20.0, "static"), why
+
+
+def test_the_hour_rate_is_used_when_the_half_hour_one_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self) -> None: ...
+
+        def json(self) -> dict[str, Any]:
+            return {"hourFee": 12}
+
+    monkeypatch.setattr(fees.httpx, "get", lambda *a, **k: Response())
+    rate, source = fees.estimate_sat_per_vb(
+        RateGateway(None),
+        make_settings(mempool_space_url="https://mempool.test/fees"),
+        payment_method_id=BTC_METHOD,
+    )
+    assert (rate, source) == (12.0, "mempool.space")

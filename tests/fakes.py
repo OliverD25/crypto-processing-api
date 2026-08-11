@@ -66,6 +66,7 @@ def mint_bolt11(
     timestamp: int | None = None,
     payment_hash: str | None = None,
     prefix: str = "bcrt",
+    amount_part: str | None = None,
     description: str = (
         "cpapi test invoice - deliberately described at a length that makes the "
         "encoded invoice at least as long as a real one from LND"
@@ -90,15 +91,20 @@ def mint_bolt11(
     suite was green while a real 320-character invoice from LND was rejected by
     the API before it reached any of this. Minting something shorter than the
     real thing is a way to test nothing.
+
+    `amount_part` writes the human-readable amount straight into the prefix,
+    bypassing the satoshi conversion. It exists so the amount grammar itself
+    can be tested — a bare multiplier, a pico amount, a unit nobody defined.
     """
     digest = payment_hash or hashlib.sha256(f"{amount_sat}:{expiry_seconds}".encode()).hexdigest()
     now = timestamp if timestamp is not None else int(datetime.now(UTC).timestamp())
 
-    amount_part = ""
-    if amount_sat is not None:
-        # `n` is nano-bitcoin, a hundred millisatoshi, so one satoshi is ten of
-        # them. Chosen over `u` because it can express any whole satoshi.
-        amount_part = f"{amount_sat * 10}n"
+    if amount_part is None:
+        amount_part = ""
+        if amount_sat is not None:
+            # `n` is nano-bitcoin, a hundred millisatoshi, so one satoshi is ten
+            # of them. Chosen over `u` because it can express any whole satoshi.
+            amount_part = f"{amount_sat * 10}n"
 
     data = [(now >> (5 * (6 - index))) & 31 for index in range(7)]
     data += _tag("p", [((int(digest, 16) << 4) >> (5 * (51 - i))) & 31 for i in range(52)])
