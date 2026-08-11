@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/OliverD25/crypto-processing-api/security/policy
+    about: >-
+      Do not open a public issue. This service holds a hot wallet, and a public
+      report is a public exploit until the fix ships. SECURITY.md has the
+      private route.
+  - name: Question about integrating
+    url: https://github.com/OliverD25/crypto-processing-api/discussions
+    about: >-
+      How to use the API, what a status means, why a webhook looks like that.
+      Discussions, not issues — the answer usually belongs in the docs, and
+      that is easier to spot in a thread.
+  - name: Read the docs first
+    url: https://github.com/OliverD25/crypto-processing-api/tree/main/docs
+    about: >-
+      integrating.md for lifecycles and idempotency, api.md for every endpoint,
+      the runbooks for the situations that need a human.

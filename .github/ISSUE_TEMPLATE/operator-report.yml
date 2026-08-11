@@ -1,0 +1,98 @@
+name: Operator report
+description: You are running this with real money and hit a situation.
+labels: ["operator-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `CONTRIBUTING.md` asks for exactly this: **an operator's account of
+        running it — what alerted, what was noise, what the runbooks got
+        wrong.** That is worth more than most feature requests, so it gets its
+        own template rather than being squeezed into a bug report.
+
+        Use this whether or not anything is broken. "The insolvency alarm fired
+        for six hours and it was TronGrid being down" is a report worth having.
+
+        **If funds are currently at risk, or you think you found a way for
+        someone else to take them, stop and read
+        [`SECURITY.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/SECURITY.md)
+        instead. Do not describe it in public.**
+
+        **Redact before you paste.** No API keys, no BTCPay keys, no seeds, no
+        `.env`. Replace addresses and transaction ids you care about with
+        `addr-1` / `tx-1`, consistently. User ids are your users — use
+        `user-1`.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version, and how long it has been running
+      placeholder: "v0.1.1 since 2026-06-03, BTCPay 2.4.2, one VPS, BTC + USDT enabled"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: >-
+        The sequence, with times. What you saw first, what you did, what it did
+        next.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alerted
+    attributes:
+      label: What alerted, and was it right?
+      description: >-
+        The alert codes that fired, and for each one: real problem, or noise?
+        An alert that cried wolf is a defect in this project, not in your
+        deployment.
+      placeholder: >-
+        e.g. CUSTODY_INSOLVENT fired hourly for 6h. Real shortfall or a
+        TronGrid timeout? What made you sure?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reconciliation
+    attributes:
+      label: The reconciliation report
+      description: >-
+        `GET /v1/admin/reconciliation` from during or after the situation. The
+        custody lines are the point: `ledger_custody`, `chain_balance`,
+        `expected_shortfall`, `difference`, `insolvent`.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: money_state
+    attributes:
+      label: Where the money ended up
+      description: >-
+        Which balances, holds or payouts were involved, and whether the books
+        and the chain agree now. Amounts in the asset's own units are fine;
+        relative amounts ("about a day of volume") are fine too.
+    validations:
+      required: true
+
+  - type: textarea
+    id: runbooks
+    attributes:
+      label: What the runbooks got wrong
+      description: >-
+        Which one you reached for, what it did not cover, what you had to work
+        out yourself. If none applied, say which one you looked for.
+      placeholder: >-
+        e.g. runbook-usdt-attribution.md assumes one payment per address per
+        window; mine had two in the same hour and step 4 did not resolve.
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction
+      options:
+        - label: No keys, no secrets, no `.env` values, and no address or txid I care about.
+          required: true

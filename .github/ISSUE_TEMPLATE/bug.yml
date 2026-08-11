@@ -1,0 +1,86 @@
+name: Bug report
+description: Something behaves differently from what the docs say.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you paste anything: redact.** No API keys (`cpk_live_…`), no
+        BTCPay API keys, no wallet seeds, no `.env` contents. Deposit addresses
+        and transaction ids are public on the chain, but they also link this
+        report to your users and your float — leave out any you care about, or
+        replace them consistently with `addr-1`, `tx-1`.
+
+        If money is in a state you cannot explain, use the **Operator report**
+        template instead. It asks for the things that answer that question.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag or git commit you are running, and the BTCPay version behind it.
+      placeholder: "v0.1.1 (ghcr.io/oliverd25/crypto-processing-api:v0.1.1), BTCPay 2.4.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: asset
+    attributes:
+      label: Which asset
+      options:
+        - BTC (on-chain)
+        - BTC_LN (Lightning)
+        - USDT_TRC20
+        - Not asset-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and where it says so
+      description: >-
+        A link or quote from the docs, the OpenAPI spec or a docstring. If
+        nothing says it, that is a useful answer too — say so.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: The request, the response, and the relevant log lines. Redacted.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >-
+        Ideally against the regtest stack
+        (`deploy/docker-compose.regtest.yml` plus
+        `python scripts/dev/smoke_test.py`), because that is a stack anyone can
+        boot. If it only happens on your deployment, say what is different.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reconciliation
+    attributes:
+      label: What the reconciliation report said
+      description: >-
+        Output of `GET /v1/admin/reconciliation`, or the Job C log lines from
+        around the time. Skip it if the bug touches no money — but if any
+        balance, deposit or withdrawal is involved, this is the first thing
+        that gets asked for.
+      render: json
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Redaction
+      options:
+        - label: I have removed every key, secret and `.env` value from what I pasted.
+          required: true

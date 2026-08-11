@@ -1,0 +1,67 @@
+version: 2
+
+# Two cadences on purpose.
+#
+# Security advisories are picked up by Dependabot's security updates as soon as
+# they land, independent of the schedules below — those are enabled in the
+# repository's settings, not here, and this file cannot slow them down.
+#
+# Ordinary version bumps are monthly and grouped, because this project pins
+# every dependency exactly (`fastapi==0.141.1`, not `>=`). A pinned money
+# service wants its upgrades read, run against the drills, and merged as one
+# reviewed batch — a stream of single-line PRs through the week is how a
+# maintainer starts merging them unread, which is worse than being a month
+# behind.
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Kyiv
+    open-pull-requests-limit: 3
+    groups:
+      # Runtime and dev tooling separately: a ruff or mypy bump can be read in
+      # a minute, while anything under `dependencies` moves code that handles
+      # money and gets the drills.
+      runtime:
+        dependency-type: production
+      tooling:
+        dependency-type: development
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Kyiv
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "deps"
+
+  # The TypeScript SDK is not built yet. Uncommenting this before `sdks/typescript/`
+  # exists makes Dependabot log a "path not found" error on every run, so it
+  # waits here until the SDK milestone creates the directory and its lockfile.
+  # - package-ecosystem: npm
+  #   directory: "/sdks/typescript"
+  #   schedule:
+  #     interval: monthly
+  #     day: monday
+  #     time: "07:00"
+  #     timezone: Europe/Kyiv
+  #   open-pull-requests-limit: 2
+  #   groups:
+  #     npm:
+  #       patterns: ["*"]
+  #   labels: ["dependencies"]
+  #   commit-message:
+  #     prefix: "deps"
