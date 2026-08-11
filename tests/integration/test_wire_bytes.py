@@ -328,7 +328,10 @@ def build_corpus(
         asset=USDT,
         destination=TRON_DESTINATION,
     ).json()["withdrawal_id"]
-    client.post(f"/v1/admin/withdrawals/{usdt_id}/approve", json={}, headers=admin)
+    # Approval is also the handover for an operator-sent asset, so this is what
+    # puts the row in `submitted` where mark-broadcast is legal.
+    approved = client.post(f"/v1/admin/withdrawals/{usdt_id}/approve", json={}, headers=admin)
+    assert approved.status_code == 200, approved.text
     fake_tron.add_transfer(TRON_TXID, recipient=TRON_DESTINATION, amount=199_000_000)
     corpus.record(
         "adminMarkBroadcast",
