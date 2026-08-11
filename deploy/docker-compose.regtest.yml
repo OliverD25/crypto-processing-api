@@ -18,7 +18,22 @@
 # port" is a property of your machine, not of this file:
 #
 #   CPAPI_HOST_PORT=9001 BTCPAY_HOST_PORT=14143 docker compose -f ... up -d
+#
+# The worked example application (examples/platform-demo) is an opt-in profile.
+# Turn it on with the environment variable rather than with `--profile`:
+#
+#   COMPOSE_PROFILES=example docker compose -f deploy/docker-compose.regtest.yml up -d --build
+#
+# Both spellings start the demo, but only the variable is visible to the
+# interpolation below, and that is what points the api's outbound webhooks at
+# it. See the `example-app` service at the bottom of this file.
 name: cpapi-regtest
+
+# The one secret the api and the demo must agree on, written once so they
+# cannot drift apart. Obviously fake, and a regtest stack is the only place it
+# is ever used.
+x-example-webhook: &example_webhook
+  PLATFORM_WEBHOOK_SECRET: "regtest-example-webhook-secret"
 
 services:
   postgres-btcpay:
@@ -132,6 +147,7 @@ services:
       postgres-ledger:
         condition: service_healthy
     environment: &api_env
+      <<: *example_webhook
       ENVIRONMENT: development
       DEBUG: "false"
       LOG_JSON: "false"
@@ -150,6 +166,18 @@ services:
       WEBHOOK_POLL_INTERVAL_SECONDS: "2"
       RECONCILE_DEPOSIT_INTERVAL_SECONDS: "15"
       WALLET_SCAN_INTERVAL_SECONDS: "30"
+      OUTBOUND_DELIVERY_INTERVAL_SECONDS: "3"
+      # Where outbound webhooks go — the demo container, and nowhere at all
+      # without it. `${VAR:+value}` is compose's "only if VAR is set" form, and
+      # COMPOSE_PROFILES is compose's own way of switching a profile on, so the
+      # two can never get out of step: no profile, no URL, no delivery
+      # attempts. An empty string here reads as unset, which is what leaves the
+      # default stack exactly as it was.
+      #
+      # It reacts to any profile rather than to this one by name, because
+      # compose has no way to ask which profiles are active. This file has one
+      # profile, so the two questions have the same answer.
+      PLATFORM_WEBHOOK_URL: ${COMPOSE_PROFILES:+http://example-app:8000/platform-webhook}
     # Written by scripts/bootstrap_btcpay.py; absent until it has run once,
     # which is why the api can still start and answer /healthz without it.
     env_file: &api_env_file
@@ -182,6 +210,67 @@ services:
     healthcheck:
       disable: true
 
+  # ---------------------------------------------------------------- example
+  # The worked platform integration, examples/platform-demo. Opt-in, so a
+  # developer working on the service never boots it, and the drills are
+  # untouched.
+  #
+  # It needs an API key, and a key can only be minted where the ledger database
+  # is. That is what this one-shot container is: it runs the service's own CLI,
+  # leaves the key in a shared volume and exits. In production your operator
+  # mints one and hands it over out of band; here it happens so that bringing
+  # the demo up is a single command.
+  example-keymint:
+    profiles: ["example"]
+    # The same build as the api. Compose tags it separately, and every layer is
+    # a cache hit, so this costs seconds rather than a second image build.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      api:
+        # Not `service_started`: the api's command runs the migrations, and
+        # there is no api_keys table to write into until it has.
+        condition: service_healthy
+    environment: *api_env
+    env_file: *api_env_file
+    # A fresh named volume is created owned by root, and this container has to
+    # write into it. The demo reads the file as an ordinary user.
+    user: root
+    volumes:
+      - example_key:/keys
+    # The CLI prints the key on stdout and everything else on stderr, so the
+    # redirection captures the key and nothing but the key.
+    command:
+      - sh
+      - -c
+      - >-
+        python -m crypto_processing_api.cli create-api-key
+        --name platform-demo --scope readwrite > /keys/platform.key
+    # A container that is meant to exit has nothing to probe.
+    healthcheck:
+      disable: true
+
+  example-app:
+    profiles: ["example"]
+    build:
+      # The repository root, because the image installs the Python SDK from
+      # sdks/python rather than from PyPI.
+      context: ..
+      dockerfile: examples/platform-demo/Dockerfile
+    depends_on:
+      example-keymint:
+        condition: service_completed_successfully
+    environment:
+      <<: *example_webhook
+      # Container to container, so the demo never leaves this network.
+      CPAPI_BASE_URL: http://api:8000
+      CPAPI_API_KEY_FILE: /keys/platform.key
+    volumes:
+      - example_key:/keys:ro
+    ports:
+      - "127.0.0.1:${EXAMPLE_HOST_PORT:-8096}:8000"
+
 volumes:
   btcpay_postgres:
   ledger_postgres:
@@ -190,3 +279,4 @@ volumes:
   nbxplorer_datadir:
   btcpay_datadir:
   btcpay_pluginsdir:
+  example_key:
