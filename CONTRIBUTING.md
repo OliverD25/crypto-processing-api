@@ -151,6 +151,12 @@ file anyone has touched is not. From then on every future migration must be
 able to upgrade it, which is what catches the migration that is correct on
 empty tables and wrong on data.
 
+**After the FIRST release that publishes the npm package**: the `NPM_TOKEN`
+secret was bootstrapped with all-packages access because the package did not
+exist yet (see `sdks/README.md`). Generate a new granular token limited to
+`@oliverd25/crypto-processing-client`, replace the repository secret, and
+revoke the bootstrap token.
+
 ## Commit messages
 
 Explain **why**, not what — the diff already says what. Look at

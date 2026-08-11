@@ -151,11 +151,16 @@ is still needed. Scope it to the single package and nothing else.
 
 1. Create an npm account, and create the `@oliverd25` scope (npm →
    **Add organization**, free for public packages).
-2. **Access Tokens → Generate New Token → Granular Access Token**:
-   - Expiration: whatever you will remember to rotate.
-   - Packages and scopes: **Read and write**, limited to
-     `@oliverd25/crypto-processing-client`.
-   - Organizations: no permissions.
+2. **Access Tokens → Generate New Token → Granular Access Token**.
+   The token picker can only list packages that already exist, and this one
+   does not exist until the first release publishes it. So bootstrap in two
+   rounds:
+   - **Before the first publish**: Read and write on **All packages**
+     (the account owns no packages yet, so this protects an empty set),
+     expiration **30 days**, Organizations: no permissions.
+   - **After the first publish** (release checklist step): generate a new
+     token limited to `@oliverd25/crypto-processing-client`, replace the
+     repository secret, revoke the bootstrap token.
 3. Add it here as a repository secret named `NPM_TOKEN`:
 
    ```sh
