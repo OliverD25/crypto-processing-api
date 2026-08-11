@@ -228,10 +228,23 @@ def test_an_unreachable_node_is_unknown_not_zero() -> None:
 # -- looking for a stuck payout -------------------------------------------
 
 
-def test_a_cancelled_payout_is_never_a_candidate(session: Session, fake_btcpay: FakeBTCPay) -> None:
+class ListsCancelledPayoutsToo(FakeBTCPay):
+    """A BTCPay that hands back cancelled payouts whatever it was asked for.
+
+    The real call passes `includeCancelled=false`, so the server normally
+    filters them out. Removing that help is the only way to find out whether
+    the backend filters them itself.
+    """
+
+    def list_payouts(self, *, include_cancelled: bool = False) -> list[Any]:
+        return [payout.to_model() for payout in self.payouts.values()]
+
+
+def test_a_cancelled_payout_is_never_a_candidate(session: Session) -> None:
     """A cancelled payout to the same destination cannot be the one we are
     looking for, and counting it as unclaimed would freeze a row that is free
     to be submitted again."""
+    fake = ListsCancelledPayoutsToo()
     credit_user(session, user="cancelled-candidate", amount=FUNDED)
     outcome = withdrawal_service.place_hold(
         session,
@@ -242,14 +255,15 @@ def test_a_cancelled_payout_is_never_a_candidate(session: Session, fake_btcpay: 
     )
     session.commit()
 
-    stale = fake_btcpay.create_foreign_payout(DEST, "0.00097000")
-    fake_btcpay.cancel_payout_externally(stale)
+    stale = fake.create_foreign_payout(DEST, "0.00097000")
+    fake.cancel_payout_externally(stale)
+    assert fake.payouts[stale].state == "Cancelled"
 
-    backend = BtcpayPayoutBackend(fake_btcpay, payout_method_id="BTC-CHAIN")
+    backend = BtcpayPayoutBackend(fake, payout_method_id="BTC-CHAIN")
     mine, unclaimed = backend.find_for_withdrawal(outcome.withdrawal)
 
     assert mine is None
-    assert unclaimed == []
+    assert unclaimed == [], "a cancelled payout was counted as one that might be ours"
 
 
 def test_an_unclaimed_payout_to_the_same_destination_is_a_candidate(
