@@ -65,14 +65,14 @@ taking the float. Pick the one whose risk you would rather hold.
 > cannot be withdrawn on chain, on-chain funds cannot be withdrawn over
 > Lightning, and nothing moves between them automatically. Moving value between
 > the two floats is an operator action —
-> [`runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md).
+> [the rebalancing runbook](https://oliverd25.github.io/crypto-processing-api/operating/runbook-ln-rebalance/).
 >
 > Most people who say they need Lightning mean *one balance, either rail out*.
 > This is not that, and building that means a rebalancing entry kind that does
 > not exist yet. It is off by default (`LIGHTNING_ENABLED=false`), partly for
 > that reason and partly because enabling it makes the bootstrap request one
 > server-level BTCPay permission —
-> [`security.md`](docs/security.md) explains the trade-off.
+> the [security model](https://oliverd25.github.io/crypto-processing-api/operating/security/) explains the trade-off.
 >
 > Two smaller behaviours worth knowing: a Lightning deposit invoice can be paid
 > **exactly once** (an on-chain deposit address accepts several payments), and a
@@ -109,7 +109,7 @@ The last command creates a deposit, pays it from a regtest node, mines,
 withdraws, and asserts the balances to the satoshi. It also stops the API
 mid-payment to prove the reconciliation path credits without help.
 
-For a real deployment: [`docs/deployment.md`](docs/deployment.md).
+For a real deployment: [Deploying](https://oliverd25.github.io/crypto-processing-api/operating/deployment/).
 
 ## Operating safely
 
@@ -127,29 +127,37 @@ afford to lose in a day.
 Everything else — key hashing, HMAC verification, velocity gates, the
 append-only ledger — serves one of two goals: keeping that number small, and
 making sure you find out quickly. The full picture, with its honest residual
-risks, is in [`docs/security.md`](docs/security.md).
+risks, is in the [security model](https://oliverd25.github.io/crypto-processing-api/operating/security/).
 
 ## Documentation
 
-| Document | For |
+**[oliverd25.github.io/crypto-processing-api](https://oliverd25.github.io/crypto-processing-api/)** —
+the whole thing, searchable, tracking `main`. The same files are in
+[`docs/`](docs/) if you would rather read them here or offline.
+
+| Start at | If you are |
 |---|---|
-| [`integrating.md`](docs/integrating.md) | platform developers: lifecycles, idempotency, webhook verification |
-| [`api.md`](docs/api.md) | every endpoint, every error code |
-| [`reference/openapi.json`](docs/reference/openapi.json) | the machine-readable API contract; CI fails if it and the code disagree |
-| [`reference/webhook-events.json`](docs/reference/webhook-events.json) | the JSON Schema of all eight outbound events, behind the same gate |
-| [`reference/versioning.md`](docs/reference/versioning.md) | what a release may change, what it never will, and how deprecations run |
-| [`deployment.md`](docs/deployment.md) | a fresh VPS to a running deployment |
-| [`btcpay-setup.md`](docs/btcpay-setup.md) | what BTCPay needs, including the manual USDt plugin steps |
-| [`extending.md`](docs/extending.md) | adding your own asset: the four pluggable facets, what is welded shut, and how `BTC_LN` was added commit by commit |
-| [`security.md`](docs/security.md) | threat model, float policy, cold sweeps |
-| [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | auditors: every control, the file it lives in, the test that proves it |
-| [`backups.md`](docs/backups.md) | continuous archiving and the restore drill |
-| [`runbook-usdt-withdrawals.md`](docs/runbook-usdt-withdrawals.md) | sending USDT by hand |
-| [`runbook-usdt-attribution.md`](docs/runbook-usdt-attribution.md) | pooled-address deposits that need a human |
-| [`runbook-reorg.md`](docs/runbook-reorg.md) | a credited deposit was orphaned |
-| [`runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md) | moving value between the on-chain and Lightning floats |
-| [`ROADMAP.md`](ROADMAP.md) | what is coming, and what is deliberately not planned |
-| [`design/`](docs/design/) | the architecture, and the adversarial review it survived |
+| [Integrating](https://oliverd25.github.io/crypto-processing-api/integrating/) | writing the platform that calls this: lifecycles, idempotency, webhook verification |
+| [Client libraries](https://oliverd25.github.io/crypto-processing-api/integrating/sdks/) | on Python or Node and want the two hard parts already done |
+| [API endpoints](https://oliverd25.github.io/crypto-processing-api/reference/api/) | looking up a route or an error code |
+| [Deploying](https://oliverd25.github.io/crypto-processing-api/operating/deployment/) | going from a fresh VPS to a running deployment |
+| [Security model](https://oliverd25.github.io/crypto-processing-api/operating/security/) | deciding whether to point real money at this |
+| [Configuration](https://oliverd25.github.io/crypto-processing-api/reference/configuration/) | setting an environment variable and wanting to know what it does |
+| [Runbooks](https://oliverd25.github.io/crypto-processing-api/operating/runbook-usdt-withdrawals/) | holding the pager at 3am |
+| [Adding your own asset](https://oliverd25.github.io/crypto-processing-api/extending/adding-an-asset/) | adding a coin: the pluggable facets, and what is welded shut |
+| [Design record](https://oliverd25.github.io/crypto-processing-api/design/) | asking why it is built this way, and how it survived being attacked on paper |
+
+Three things live in this repository rather than on the site, because they are
+about the repository: [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) (every control,
+the file it lives in, the test that proves it),
+[`ROADMAP.md`](ROADMAP.md) (what is coming and what is deliberately not
+planned), and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+The machine-readable contracts are committed and drift-gated by CI:
+[`openapi.json`](docs/reference/openapi.json),
+[`webhook-events.json`](docs/reference/webhook-events.json), and
+[`configuration.md`](docs/reference/configuration.md), which is generated from
+the settings model itself.
 
 ## Status
 
@@ -164,7 +172,7 @@ The API and webhook contracts are committed under
 disagree.
 
 **It has not been through an external audit and has not run at scale.** Read
-[`docs/security.md`](docs/security.md) before pointing real funds at it, and
+the [security model](https://oliverd25.github.io/crypto-processing-api/operating/security/) before pointing real funds at it, and
 start with amounts you would not mind losing.
 
 Not in this version: automated USDT sending (the BTCPay plugin has no payout
