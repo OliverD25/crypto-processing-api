@@ -162,13 +162,20 @@ jobs:
       # that notices.
       - name: The committed contracts must be what the code produces
         run: python scripts/export_openapi.py --check
+      # The third generated contract: the webhook signature vectors that the
+      # server and both SDKs assert against. Hand-editing one is how three
+      # implementations of an HMAC scheme stop agreeing, so the file is gated
+      # exactly like the other two.
+      - name: The committed signature vectors must be what the signer produces
+        run: python scripts/export_signature_vectors.py --check
       # Belt and braces: --check compares content, this catches anything that
       # rewrites the files without changing what the script would write (a line
       # ending, an editor's trailing newline).
       - name: The working tree must be clean after a regeneration
         run: |
           python scripts/export_openapi.py
-          git diff --exit-code -- docs/reference
+          python scripts/export_signature_vectors.py
+          git diff --exit-code -- docs/reference sdks/signature-vectors.json
 
   semgrep:
     name: semgrep

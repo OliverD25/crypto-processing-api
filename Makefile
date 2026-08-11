@@ -51,8 +51,9 @@ test-int: ## Integration tests against the dockerized test Postgres
 test: test-unit test-int ## Full test suite
 
 .PHONY: contracts
-contracts: ## Regenerate the committed OpenAPI and webhook schemas
+contracts: ## Regenerate the committed OpenAPI, webhook and signature contracts
 	$(BIN)/python scripts/export_openapi.py
+	$(BIN)/python scripts/export_signature_vectors.py
 
 .PHONY: cov
 cov: ## Ledger coverage gate (the CI floor)
