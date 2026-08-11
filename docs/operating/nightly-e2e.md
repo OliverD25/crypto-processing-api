@@ -278,11 +278,12 @@ For this project, in order:
 | Egress fence proof | The fence is still there tonight. |
 | Checkout public `main` | Only merged code runs. |
 | `pip install -e ".[dev]"` | The published dependency set resolves today. |
-| `docker compose -f deploy/docker-compose.regtest.yml up -d --build` | bitcoind, NBXplorer, BTCPay, two Postgres and the API come up together. |
+| `docker compose -f deploy/docker-compose.regtest.yml up -d --build` | bitcoind, NBXplorer, BTCPay, two Postgres and the API come up together. `COMPOSE_PROFILES=example` is set for the whole job, so the demo application comes up with them and the API has a webhook URL to deliver to. |
 | Wait for `synchronized: true` | See "cold-start ordering" below. |
 | `scripts/bootstrap_btcpay.py` | The store, wallet, API key and webhook can be configured headlessly. |
 | `up -d --force-recreate api worker` | The API picks up the credentials bootstrap just generated. |
 | `scripts/dev/smoke_test.py --drill all` | Drills 1–7: deposit, outage, replay, late payment, withdrawal, approval, crash. Every assertion is a satoshi count. |
+| `scripts/dev/example_loop.py` | The [example application](../integrating/example-app.md) still does the whole loop through its own pages. A tutorial that has quietly stopped working fails in front of the worst possible reader. |
 | `HYPOTHESIS_PROFILE=nightly pytest tests/integration` | The wide, randomised property search a pull request cannot afford. |
 | `pip-audit` | New CVEs in the pinned dependency set. |
 | `down -v` + prune, in `always()` | The box is returned to where it started. |

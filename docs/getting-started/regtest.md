@@ -34,6 +34,16 @@ sh scripts/dev/ln_bootstrap.sh
 LIGHTNING_ENABLED=true python scripts/bootstrap_btcpay.py
 ```
 
+The [example application](../integrating/example-app.md) is an opt-in profile in
+the same file, and adds two more containers: the demo itself on
+<http://127.0.0.1:8096>, and a one-shot container that mints its API key. Turn
+it on with the environment variable rather than `--profile`, because that is
+what also points the API's outbound webhooks at it:
+
+```sh
+COMPOSE_PROFILES=example docker compose -f deploy/docker-compose.regtest.yml up -d --build
+```
+
 ## Mining, and the first 101 blocks
 
 A freshly created regtest chain has no spendable coins, and a coinbase output

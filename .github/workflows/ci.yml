@@ -259,3 +259,57 @@ jobs:
           cache-to: type=gha,mode=max
       - name: The image must be able to run the CLI
         run: docker run --rm crypto-processing-api:ci python -m crypto_processing_api.cli --help
+
+  example:
+    name: example app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      # The example is public teaching code, so it is held to the same bar as
+      # the service: --strict, no exemptions. It is not in the root mypy
+      # `files` list because it needs jinja2 and the SDK, and nobody running
+      # the test suite should have to install a web template engine.
+      - run: pip install -e ".[dev]"
+      # From the example's own directory, because the editable SDK path in that
+      # file is relative and pip resolves it against the working directory.
+      - run: pip install -r requirements.txt
+        working-directory: examples/platform-demo
+      - run: mypy examples/platform-demo/app.py
+      # The image is what the compose profile builds and what the nightly then
+      # drives end to end. A Dockerfile that stopped building would otherwise
+      # be found at 00:17 rather than on the pull request that broke it.
+      - uses: docker/setup-buildx-action@v4
+      - name: The example image must build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: examples/platform-demo/Dockerfile
+          push: false
+          load: true
+          tags: platform-demo:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Imports and templates, without a processing API behind it. Enough to
+      # catch a renamed SDK symbol or a template that no longer parses.
+      - name: The image must serve its own pages
+        run: |
+          docker run -d --name demo -p 8096:8000 \
+            -e CPAPI_API_KEY=cpk_test_ci \
+            -e CPAPI_BASE_URL=http://127.0.0.1:1 \
+            -e PLATFORM_WEBHOOK_SECRET=ci \
+            platform-demo:ci
+          for _ in $(seq 1 30); do
+            curl -fsS --max-time 5 http://127.0.0.1:8096/healthz >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8096/ | grep -q "Sign in"
+          curl -fsS -b user=alice http://127.0.0.1:8096/ | grep -q 'data-user="alice"'
+          # No signature header, so the five-step handler must refuse at step 1.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{}' \
+            http://127.0.0.1:8096/platform-webhook)
+          [ "$code" = "401" ] || { echo "::error::unsigned webhook got $code, expected 401"; exit 1; }
+          docker rm -f demo
