@@ -48,20 +48,21 @@ updates:
     commit-message:
       prefix: "deps"
 
-  # The TypeScript SDK is not built yet. Uncommenting this before `sdks/typescript/`
-  # exists makes Dependabot log a "path not found" error on every run, so it
-  # waits here until the SDK milestone creates the directory and its lockfile.
-  # - package-ecosystem: npm
-  #   directory: "/sdks/typescript"
-  #   schedule:
-  #     interval: monthly
-  #     day: monday
-  #     time: "07:00"
-  #     timezone: Europe/Kyiv
-  #   open-pull-requests-limit: 2
-  #   groups:
-  #     npm:
-  #       patterns: ["*"]
-  #   labels: ["dependencies"]
-  #   commit-message:
-  #     prefix: "deps"
+  # Build-time only: the published package has no runtime dependencies, so
+  # everything here is a generator, a compiler or a test runner. A bump to
+  # @hey-api/openapi-ts rewrites the committed client, and the SDK drift gate
+  # is what turns that into a reviewable diff rather than a surprise.
+  - package-ecosystem: npm
+    directory: "/sdks/typescript"
+    schedule:
+      interval: monthly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Kyiv
+    open-pull-requests-limit: 2
+    groups:
+      npm:
+        patterns: ["*"]
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps"

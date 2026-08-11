@@ -66,10 +66,12 @@ not when it is started.
   every drill, and the wide property profile, once a night on hardware
   somebody owns. Design and isolation model are written up in
   [`docs/nightly-e2e.md`](docs/nightly-e2e.md); the runner install is not done.
-- [ ] **SDKs** — `crypto-processing-client` on PyPI and npm. Generated core
+- [x] **SDKs** — `crypto-processing-client` on PyPI and npm. Generated core
   from the committed spec, plus a small handwritten layer for the two things
   codegen cannot do: webhook signature verification over raw bytes, and
-  idempotency-key discipline across retries.
+  idempotency-key discipline across retries. Both are built and tested in
+  [`sdks/`](sdks/); publishing waits on two registry accounts that do not exist
+  yet, listed in [`sdks/README.md`](sdks/README.md).
 - [ ] **Docs site** — the existing markdown, published, with the OpenAPI
   reference rendered from the committed spec and a generated configuration
   page so `.env.example` can never drift from `Settings` again.
