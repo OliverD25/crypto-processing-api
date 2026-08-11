@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-08-11",
+  "captured_by": "scripts/verify_nile.py",
+  "endpoints": {
+    "mainnet": "https://api.trongrid.io",
+    "nile": "https://nile.trongrid.io"
+  },
+  "files": [
+    "getaccount_hot_wallet",
+    "getnowblock",
+    "gettransactioninfobyid_deposit",
+    "gettransactioninfobyid_withdrawal",
+    "triggerconstantcontract_balanceof",
+    "triggerconstantcontract_decimals_mainnet",
+    "triggerconstantcontract_decimals_nile",
+    "triggerconstantcontract_symbol_mainnet",
+    "triggerconstantcontract_symbol_nile"
+  ],
+  "not_captured": "No refused constant call, no wallet/gettransactionbyid, and no TRC-20 transfer listing (/v1/accounts/{address}/transactions/trc20). The session never asked for them: the client does not call the last two, and no contract it read was missing. tests/fake_tron.py still models a refusal from TronGrid's documentation alone.",
+  "session": "docs/operating/verification-log.md, run of 2026-08-11",
+  "source": "live TRON Nile testnet, plus two read-only mainnet calls",
+  "why": "Real TronGrid bodies, so the parser and the decoders can be asserted against TRON rather than against FakeTronGrid. See tests/unit/test_tron_payload_corpus.py."
+}

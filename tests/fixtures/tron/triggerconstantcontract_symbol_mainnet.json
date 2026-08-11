@@ -1,0 +1,48 @@
+{
+  "recorded_at": "2026-08-11T16:37:39+00:00",
+  "request": {
+    "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    "function_selector": "symbol()",
+    "owner_address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+    "parameter": "",
+    "visible": true
+  },
+  "response": {
+    "constant_result": [
+      "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000045553445400000000000000000000000000000000000000000000000000000000"
+    ],
+    "energy_penalty": 4558,
+    "energy_used": 5922,
+    "result": {
+      "result": true
+    },
+    "transaction": {
+      "raw_data": {
+        "contract": [
+          {
+            "parameter": {
+              "type_url": "type.googleapis.com/protocol.TriggerSmartContract",
+              "value": {
+                "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+                "data": "95d89b41",
+                "owner_address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
+              }
+            },
+            "type": "TriggerSmartContract"
+          }
+        ],
+        "expiration": 1786466316000,
+        "ref_block_bytes": "0aa4",
+        "ref_block_hash": "8caea0bcb2db2149",
+        "timestamp": 1786466259247
+      },
+      "raw_data_hex": "0a020aa422088caea0bcb2db214940e0ddc28dff335a6d081f12690a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412340a15410000000000000000000000000000000000000000121541a614f803b6fd780986a42c78ec9c7f77e6ded13c220495d89b4170afa2bf8dff33",
+      "ret": [
+        {}
+      ],
+      "txID": "fa4a40e6b0c8168d25bfe74e3a49c00b34dd6775bc93a3585427b62e8188fd37",
+      "visible": true
+    }
+  },
+  "source": "mainnet/wallet/triggerconstantcontract"
+}

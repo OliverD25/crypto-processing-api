@@ -107,6 +107,16 @@ Notable changes to this project. The format follows
   gone from the five places that carried it. Mainnet was read and never
   written to: no mainnet transaction has been created, sent or verified from
   here, and the comments say exactly that.
+- **Nine recorded TronGrid payloads, in `tests/fixtures/tron/`.** The live
+  session diffed what TronGrid sent against `tests/fake_tron.py` and found
+  twenty differences: the fake invented a `receipt.net_fee`, and it was missing
+  `contractResult`, `contract_address`, two more receipt counters and the whole
+  echoed `transaction` object that comes back from every constant call. All
+  twenty are closed, the fake now models both receipt shapes a TRC-20 transfer
+  can have, and `tests/unit/test_tron_payload_corpus.py` parses the recorded
+  bodies through the production client and re-runs that comparison on every
+  test run. There is no TRON regtest, so this is the only thing standing
+  between the fake and a shape only this repository has ever seen.
 
 ### Changed
 

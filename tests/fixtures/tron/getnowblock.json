@@ -1,0 +1,85 @@
+{
+  "recorded_at": "2026-08-11T17:00:23+00:00",
+  "request": {},
+  "response": {
+    "blockID": "00000000042be28d6d3849ba8e6368eeaee6137d9fd60cc7b29033fef78f1d24",
+    "block_header": {
+      "raw_data": {
+        "number": 69984909,
+        "parentHash": "00000000042be28ccd2cededae206f8b2065592a1fb488fd1461e1f750a2c69e",
+        "timestamp": 1786467621000,
+        "txTrieRoot": "175204f5df130c8e613fae4d6f967b3b13163b475f78e21cab85e86fc5cd78e0",
+        "version": 37,
+        "witness_address": "41dcb6d884d74814fe7a346c3f0baff23a7826fb4f"
+      },
+      "witness_signature": "11196873c2d1fef03157f70e335adae5f0f7c2fe11f036e766b4525c98aebec5626508b7296e04ab85cee06b386f968bf0b08b636fcf9bdb59a0ac76659e847c01"
+    },
+    "transactions": [
+      {
+        "raw_data": {
+          "contract": [
+            {
+              "Permission_id": 3,
+              "parameter": {
+                "type_url": "type.googleapis.com/protocol.DelegateResourceContract",
+                "value": {
+                  "balance": 16000000,
+                  "owner_address": "415a992dfb154a4c8b3265e411ebf053b8bbff143a",
+                  "receiver_address": "416992d5eba4dda46e076b59e84b6f20cd2c00db66",
+                  "resource": "ENERGY"
+                }
+              },
+              "type": "DelegateResourceContract"
+            }
+          ],
+          "expiration": 1786467675000,
+          "ref_block_bytes": "e279",
+          "ref_block_hash": "add61f3e89e6ade3",
+          "timestamp": 1786467618040
+        },
+        "raw_data_hex": "0a02e2792208add61f3e89e6ade340f8d6958eff335a740839126e0a35747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e44656c65676174655265736f75726365436f6e747261637412350a15415a992dfb154a4c8b3265e411ebf053b8bbff143a10011880c8d0072215416992d5eba4dda46e076b59e84b6f20cd2c00db66280370f899928eff33",
+        "ret": [
+          {
+            "contractRet": "SUCCESS"
+          }
+        ],
+        "signature": [
+          "21bbe8ed46ce612303dc789d5503f46a1edcc39eda71278e583de2ab4f3f9f604d67c122ee739a5eeaf23776fb6893dd09ff531d24041fd2199327296d2c77801c"
+        ],
+        "txID": "f63f11e833a33dd0a5f43eaba8fde271c7af6192e2e7b66112c4a923526f2a78"
+      },
+      {
+        "raw_data": {
+          "contract": [
+            {
+              "parameter": {
+                "type_url": "type.googleapis.com/protocol.TransferContract",
+                "value": {
+                  "amount": 28000,
+                  "owner_address": "41f7c3feccb6461aab0fd25f61d9560645b08228cb",
+                  "to_address": "41b06b4139895c9f51c967c9f3d9089ca721e8e34c"
+                }
+              },
+              "type": "TransferContract"
+            }
+          ],
+          "expiration": 1786467919284,
+          "ref_block_bytes": "e27a",
+          "ref_block_hash": "df407d201ed85ae7",
+          "timestamp": 1786467619053361100
+        },
+        "raw_data_hex": "0a02e27a2208df407d201ed85ae740b4cba48eff335a67080112630a2d747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e5472616e73666572436f6e747261637412320a1541f7c3feccb6461aab0fd25f61d9560645b08228cb121541b06b4139895c9f51c967c9f3d9089ca721e8e34c18e0da0170ccafa7e3d9dab3e518",
+        "ret": [
+          {
+            "contractRet": "SUCCESS"
+          }
+        ],
+        "signature": [
+          "991c9c901fa2cd72ae12a2ec5966ceceeeb2326d324cd299e00fa97898a88aa1779e9c666f20086a18c3b644c43841e7e91b59eba9e6fe7e5ec2103f55360aaa01"
+        ],
+        "txID": "4271abb1e6b5b41023f6c53138db948b180dc87dca491258b8ffcdc7e6a83c1b"
+      }
+    ]
+  },
+  "source": "nile/wallet/getnowblock"
+}

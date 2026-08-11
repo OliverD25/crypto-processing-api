@@ -101,3 +101,13 @@ Caveats downgraded by this run:
 Raw payloads: `spike-evidence-nile/` in the operator's working copy. They are
 not committed — they contain nothing secret, but they are a session's
 scratch, and the assertions above are the part that matters.
+
+!!! note "Added after the run, not part of the stage-6 report"
+
+    The twenty shape differences were closed in `tests/fake_tron.py`, and nine
+    of the raw payloads were curated into `tests/fixtures/tron/` and committed
+    after all. The reasoning above still holds for the session directory as a
+    whole — it is scratch — but a payload the parser is asserted against is
+    evidence, not scratch, so those nine are kept.
+    `tests/unit/test_tron_payload_corpus.py` parses them through the
+    production client and re-runs the stage-5 comparison on every test run.

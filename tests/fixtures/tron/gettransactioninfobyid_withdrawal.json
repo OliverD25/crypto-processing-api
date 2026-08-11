@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-08-11T16:59:32+00:00",
+  "request": {
+    "value": "19637a3a1c804e87e7f9f196bffa09a5d86586a0be4cf92afe731a5cbe519ec2"
+  },
+  "response": {
+    "blockNumber": 69984870,
+    "blockTimeStamp": 1786467504000,
+    "contractResult": [
+      "0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "contract_address": "41eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+    "id": "19637a3a1c804e87e7f9f196bffa09a5d86586a0be4cf92afe731a5cbe519ec2",
+    "log": [
+      {
+        "address": "eca9bc828a3005b9a3b909f2cc5c2a54794de05f",
+        "data": "00000000000000000000000000000000000000000000000000000000000f4240",
+        "topics": [
+          "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0000000000000000000000009ad85dcb378cba92e8e39df8e593c54a428f33de",
+          "000000000000000000000000d9aa1e3e4759436ad0385fc4c0ac5137f9780e70"
+        ]
+      }
+    ],
+    "receipt": {
+      "energy_usage_total": 14650,
+      "net_usage": 345,
+      "origin_energy_usage": 14650,
+      "result": "SUCCESS"
+    }
+  },
+  "source": "nile/wallet/gettransactioninfobyid"
+}

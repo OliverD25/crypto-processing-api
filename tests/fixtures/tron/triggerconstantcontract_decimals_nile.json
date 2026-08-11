@@ -1,0 +1,47 @@
+{
+  "recorded_at": "2026-08-11T16:37:39+00:00",
+  "request": {
+    "contract_address": "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+    "function_selector": "decimals()",
+    "owner_address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+    "parameter": "",
+    "visible": true
+  },
+  "response": {
+    "constant_result": [
+      "0000000000000000000000000000000000000000000000000000000000000006"
+    ],
+    "energy_used": 508,
+    "result": {
+      "result": true
+    },
+    "transaction": {
+      "raw_data": {
+        "contract": [
+          {
+            "parameter": {
+              "type_url": "type.googleapis.com/protocol.TriggerSmartContract",
+              "value": {
+                "contract_address": "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf",
+                "data": "313ce567",
+                "owner_address": "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
+              }
+            },
+            "type": "TriggerSmartContract"
+          }
+        ],
+        "expiration": 1786466316000,
+        "ref_block_bytes": "e0b6",
+        "ref_block_hash": "5a6dbc75b7a5f6be",
+        "timestamp": 1786466259019
+      },
+      "raw_data_hex": "0a02e0b622085a6dbc75b7a5f6be40e0ddc28dff335a6d081f12690a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412340a15410000000000000000000000000000000000000000121541eca9bc828a3005b9a3b909f2cc5c2a54794de05f2204313ce56770cba0bf8dff33",
+      "ret": [
+        {}
+      ],
+      "txID": "877c0b29723ef240bc153fc5e71bef3b2e2517c07a3d3ea95912246c18cb9425",
+      "visible": true
+    }
+  },
+  "source": "nile/wallet/triggerconstantcontract"
+}

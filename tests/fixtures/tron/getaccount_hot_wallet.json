@@ -1,0 +1,54 @@
+{
+  "recorded_at": "2026-08-11T16:37:39+00:00",
+  "request": {
+    "address": "TQ5xFzzVSzVCftz3Qdapm1W3MAyw4exD5z",
+    "visible": true
+  },
+  "response": {
+    "account_resource": {
+      "energy_window_optimized": true,
+      "energy_window_size": 28800000
+    },
+    "active_permission": [
+      {
+        "id": 2,
+        "keys": [
+          {
+            "address": "TQ5xFzzVSzVCftz3Qdapm1W3MAyw4exD5z",
+            "weight": 1
+          }
+        ],
+        "operations": "7fff1fc0033efb0f000000000000000000000000000000000000000000000000",
+        "permission_name": "active",
+        "threshold": 1,
+        "type": "Active"
+      }
+    ],
+    "address": "TQ5xFzzVSzVCftz3Qdapm1W3MAyw4exD5z",
+    "asset_optimized": true,
+    "balance": 500000000,
+    "create_time": 1786444788000,
+    "frozenV2": [
+      {},
+      {
+        "type": "ENERGY"
+      },
+      {
+        "type": "TRON_POWER"
+      }
+    ],
+    "net_window_optimized": true,
+    "net_window_size": 28800000,
+    "owner_permission": {
+      "keys": [
+        {
+          "address": "TQ5xFzzVSzVCftz3Qdapm1W3MAyw4exD5z",
+          "weight": 1
+        }
+      ],
+      "permission_name": "owner",
+      "threshold": 1
+    }
+  },
+  "source": "nile/wallet/getaccount"
+}
