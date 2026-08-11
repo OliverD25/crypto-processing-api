@@ -1,0 +1,20 @@
+# Pinned exactly, so the tutorial you read is the tutorial that runs.
+#
+# Install from this directory, not from the repository root — the editable path
+# at the bottom is resolved against your working directory:
+#
+#     cd examples/platform-demo && pip install -r requirements.txt
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+# FastAPI renders the pages with it, and parses the HTML form posts with the
+# one below. Neither is pulled in by FastAPI itself.
+jinja2==3.1.6
+python-multipart==0.0.20
+
+# The client, taken from this repository rather than from PyPI, so the example
+# is always compiled against the SDK in the tree next to it. Your platform
+# writes a version instead:
+#
+#     crypto-processing-client==0.2.0
+-e ../../sdks/python

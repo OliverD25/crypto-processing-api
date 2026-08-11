@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <p>
+    Signed in as <strong data-user="{{ user }}">{{ user }}</strong>.
+    <form method="post" action="/logout" style="display:inline">
+      <button type="submit">Sign out</button>
+    </form>
+  </p>
+</section>
+
+{# Loads itself, then re-reads every 5 seconds. Nothing about a balance is
+   cached in this app: the fragment is the API's answer, rendered. #}
+<section>
+  <h2>Balances</h2>
+  <div id="balances" hx-get="/balances" hx-trigger="load, every 5s" hx-swap="outerHTML">
+    <p class="muted">loading…</p>
+  </div>
+</section>
+
+<section>
+  <h2>Deposit</h2>
+  <form hx-post="/deposits" hx-target="#deposit-panel" hx-swap="innerHTML">
+    <label>expected amount
+      <input type="text" name="amount_sats" value="50000000" size="12" inputmode="numeric" />
+    </label>
+    <span class="muted">satoshis, whole units, as a string</span>
+    <button type="submit">Get a deposit address</button>
+  </form>
+  <div id="deposit-panel"></div>
+</section>
+
+<section>
+  <h2>Withdraw</h2>
+  <form hx-post="/withdrawals" hx-target="#withdrawal-panel" hx-swap="innerHTML">
+    {# Generated when this page was rendered, not when the button was pressed.
+       That is what makes a double click one withdrawal instead of two. #}
+    <input type="hidden" name="request_id" value="{{ request_id }}" />
+    <label>amount <input type="text" name="amount" value="400000" size="10" inputmode="numeric" /></label>
+    <label>to <input type="text" name="destination" size="34" placeholder="bcrt1…" /></label>
+    <button type="submit">Request a withdrawal</button>
+  </form>
+  <div id="withdrawal-panel"></div>
+</section>
+
+<section>
+  <h2>Activity</h2>
+  <div id="activity" hx-get="/activity" hx-trigger="load, every 4s" hx-swap="outerHTML">
+    <p class="muted">loading…</p>
+  </div>
+</section>
+{% endblock %}

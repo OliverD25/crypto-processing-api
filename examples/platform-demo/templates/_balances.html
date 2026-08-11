@@ -1,0 +1,23 @@
+{# The `data-` attributes are not decoration: scripts/dev/example_loop.py reads
+   this fragment to assert that the credited balance reached the screen. #}
+<div id="balances" hx-get="/balances" hx-trigger="every 5s" hx-swap="outerHTML">
+  <table>
+    <tr><th>asset</th><th>available</th><th>held</th><th>total</th></tr>
+    {% for b in balances %}
+    <tr data-asset="{{ b.asset }}" data-available="{{ b.available }}" data-held="{{ b.held }}">
+      <td>{{ b.asset }}</td>
+      <td class="mono">{{ b.available }}</td>
+      <td class="mono">{{ b.held }}</td>
+      <td class="mono">{{ b.total }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">no balances yet</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">
+    Read from <code>GET /v1/users/{id}/balances</code> a moment ago. This app
+    stores no balances of its own — <code>held</code> is money a withdrawal in
+    flight has reserved, and it is a separate ledger account rather than a
+    subtraction.
+  </p>
+</div>

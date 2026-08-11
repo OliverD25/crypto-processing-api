@@ -1,0 +1,15 @@
+{# `data-source="webhook"` marks a line that a delivery caused rather than a
+   click. If none ever appears, the stack is running without outbound delivery
+   configured and the pages above are staying correct by polling alone — which
+   is exactly the claim the integration guide makes. #}
+<div id="activity" hx-get="/activity" hx-trigger="every 4s" hx-swap="outerHTML">
+  <ul>
+    {% for n in notices %}
+    <li data-source="{{ n.source }}">
+      {{ n.text }} <span class="muted">[{{ n.source }}]</span>
+    </li>
+    {% else %}
+    <li class="muted">nothing yet</li>
+    {% endfor %}
+  </ul>
+</div>

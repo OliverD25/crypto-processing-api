@@ -1,0 +1,40 @@
+{# The whole stylesheet, deliberately. A demo that ships a build step is a demo
+   nobody reads. HTMX comes from a pinned CDN URL for the same reason; a real
+   deployment vendors the file so the page has no third-party dependency. #}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Platform demo — crypto-processing-api</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font: 16px/1.5 system-ui, sans-serif;
+        margin: 0 auto; padding: 2rem 1rem; max-width: 46rem;
+      }
+      header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2rem; }
+      h1 { font-size: 1.3rem; margin: 0; }
+      h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+      section { margin: 2rem 0; }
+      code, .mono { font-family: ui-monospace, monospace; font-size: .9em; word-break: break-all; }
+      form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+      input, select, button { font: inherit; padding: .4rem .6rem; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: .3rem .6rem .3rem 0; }
+      .card { border: 1px solid currentColor; border-radius: .4rem; padding: .8rem 1rem; opacity: .95; }
+      .status { font-weight: 600; }
+      .muted { opacity: .65; }
+      .problem { border-left: .3rem solid #c0392b; padding-left: .8rem; }
+      ul { padding-left: 1.1rem; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Platform demo</h1>
+      <span class="muted">a worked crypto-processing-api integration</span>
+    </header>
+    {% block content %}{% endblock %}
+  </body>
+</html>

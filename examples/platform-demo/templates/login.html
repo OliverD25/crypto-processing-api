@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Sign in</h2>
+  <p class="muted">
+    No password, because this demo has no accounts. Your platform already owns
+    authentication; the processing API only ever sees the name you pick here,
+    as an opaque <code>external_user_id</code>.
+  </p>
+  <form method="post" action="/login">
+    <select name="user" aria-label="user">
+      {% for name in users %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+    </select>
+    <button type="submit">Continue</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,32 @@
+{# `moving` is false once the status cannot change on its own, and the polling
+   attributes are then simply absent. That is the whole "stop polling when it is
+   terminal" rule, expressed in markup. #}
+<div class="card"
+     data-deposit-id="{{ d.deposit_id }}"
+     data-status="{{ d.status }}"
+     data-credited="{{ d.amount_credited }}"
+     {% if moving %}hx-get="/deposits/{{ d.deposit_id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <p>
+    <span class="status">{{ d.status }}</span>
+    {% if d.status == "pending" %}<span class="muted">— send coins to the address below</span>
+    {% elif d.status == "confirming" %}<span class="muted">— payment seen, waiting for confirmations</span>
+    {% elif d.status == "review" %}<span class="muted">— being verified by an operator, nothing is lost</span>
+    {% elif d.status == "settled" %}<span class="muted">— credited</span>
+    {% endif %}
+  </p>
+  {% if d.address %}<p class="mono" data-address="{{ d.address }}">{{ d.address }}</p>{% endif %}
+  {% if d.checkout_link %}
+  <p><a href="{{ d.checkout_link }}" target="_blank" rel="noopener">Open the BTCPay checkout page</a></p>
+  {% endif %}
+  <p class="muted">
+    credited so far: <span class="mono">{{ d.amount_credited }}</span> {{ d.asset }}
+    {% if d.expires_at %} · expires {{ d.expires_at }}{% endif %}
+  </p>
+  {% if d.payments %}
+  <ul>
+    {% for p in d.payments %}
+    <li class="mono">{{ p.amount }} — {% if p.credited %}credited{% else %}not credited yet{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>

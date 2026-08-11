@@ -1,0 +1,28 @@
+<div class="card"
+     data-withdrawal-id="{{ w.withdrawal_id }}"
+     data-status="{{ w.status }}"
+     data-txid="{{ w.txid or '' }}"
+     {% if moving %}hx-get="/withdrawals/{{ w.withdrawal_id }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <p>
+    <span class="status">{{ w.status }}</span>
+    {% if w.status == "pending_approval" %}<span class="muted">— being reviewed. The money is already held, not refused.</span>
+    {% elif w.status in ("approved", "submitting", "submitted") %}<span class="muted">— processing</span>
+    {% elif w.status == "broadcast" %}<span class="muted">— sent</span>
+    {% elif w.status == "confirmed" %}<span class="muted">— complete</span>
+    {% elif w.status in ("failed", "rejected") %}<span class="muted">— under review. The balance is still held.</span>
+    {% elif w.status == "refunded" %}<span class="muted">— returned to the balance</span>
+    {% endif %}
+  </p>
+  {% if reason %}<p class="muted">{{ reason }}</p>{% endif %}
+  <table>
+    <tr><td>gross</td><td class="mono">{{ w.amount_gross }} {{ w.asset }}</td></tr>
+    <tr><td>fee</td><td class="mono">{{ w.fee if w.fee is not none else "not fixed yet" }}</td></tr>
+    <tr><td>net</td><td class="mono">{{ w.amount_net if w.amount_net is not none else "not fixed yet" }}</td></tr>
+    <tr><td>to</td><td class="mono">{{ w.destination_address }}</td></tr>
+    {% if w.txid %}<tr><td>txid</td><td class="mono">{{ w.txid }}</td></tr>{% endif %}
+  </table>
+  <p class="muted">
+    The fee is fixed when the payout is created, not when you ask, which is why
+    it reads "not fixed yet" until then.
+  </p>
+</div>
