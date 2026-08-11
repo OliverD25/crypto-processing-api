@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.middleware import (
     IdempotencyContext,
     Idempotent,
@@ -87,7 +88,16 @@ def serialize_withdrawal(withdrawal: Withdrawal, *, decimals: int) -> dict[str, 
     }
 
 
-@router.post("/v1/withdrawals", status_code=status.HTTP_201_CREATED, response_model=None)
+@router.post(
+    "/v1/withdrawals",
+    status_code=status.HTTP_201_CREATED,
+    response_model=schemas.WithdrawalCreatedResponse,
+    operation_id="createWithdrawal",
+    summary="Request a withdrawal and reserve the balance",
+    description="The hold is placed before the response returns, so `pending_approval` "
+    "is not a rejection — the funds are already reserved.",
+    responses=schemas.error_responses(400, 401, 402, 403, 404, 409, 422),
+)
 def create_withdrawal(
     payload: CreateWithdrawalRequest,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -174,7 +184,13 @@ def create_withdrawal(
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
 
 
-@router.get("/v1/withdrawals/{withdrawal_id}", response_model=None)
+@router.get(
+    "/v1/withdrawals/{withdrawal_id}",
+    response_model=schemas.WithdrawalResponse,
+    operation_id="getWithdrawal",
+    summary="Read one withdrawal",
+    responses=schemas.error_responses(401, 403, 404),
+)
 def get_withdrawal(
     withdrawal_id: uuid.UUID,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -188,7 +204,13 @@ def get_withdrawal(
     return serialize_withdrawal(withdrawal, decimals=asset.decimals)
 
 
-@router.get("/v1/users/{external_user_id}/withdrawals", response_model=None)
+@router.get(
+    "/v1/users/{external_user_id}/withdrawals",
+    response_model=schemas.WithdrawalListResponse,
+    operation_id="listUserWithdrawals",
+    summary="List a user's withdrawals, newest first",
+    responses=schemas.error_responses(401, 403),
+)
 def list_user_withdrawals(
     external_user_id: str,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],

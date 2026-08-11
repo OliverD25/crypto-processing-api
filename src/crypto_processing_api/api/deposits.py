@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.middleware import (
     IdempotencyContext,
     Idempotent,
@@ -100,7 +101,17 @@ def serialize_deposit(
     }
 
 
-@router.post("/v1/deposits", status_code=status.HTTP_201_CREATED, response_model=None)
+@router.post(
+    "/v1/deposits",
+    status_code=status.HTTP_201_CREATED,
+    response_model=schemas.DepositResponse,
+    operation_id="createDeposit",
+    summary="Create a deposit and its BTCPay invoice",
+    responses={
+        **schemas.error_responses(400, 401, 403, 404, 409, 422, 502),
+        **schemas.DEPOSIT_UNAVAILABLE_RESPONSE,
+    },
+)
 def create_deposit(
     payload: CreateDepositRequest,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -189,7 +200,13 @@ def create_deposit(
     return JSONResponse(status_code=status.HTTP_201_CREATED, content=body)
 
 
-@router.get("/v1/deposits/{deposit_id}", response_model=None)
+@router.get(
+    "/v1/deposits/{deposit_id}",
+    response_model=schemas.DepositResponse,
+    operation_id="getDeposit",
+    summary="Read one deposit and its payments",
+    responses=schemas.error_responses(401, 403, 404),
+)
 def get_deposit(
     deposit_id: uuid.UUID,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -204,7 +221,13 @@ def get_deposit(
     return serialize_deposit(deposit, decimals=asset.decimals, payments=payments)
 
 
-@router.get("/v1/users/{external_user_id}/deposits", response_model=None)
+@router.get(
+    "/v1/users/{external_user_id}/deposits",
+    response_model=schemas.DepositListResponse,
+    operation_id="listUserDeposits",
+    summary="List a user's deposits, newest first",
+    responses=schemas.error_responses(401, 403),
+)
 def list_user_deposits(
     external_user_id: str,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],

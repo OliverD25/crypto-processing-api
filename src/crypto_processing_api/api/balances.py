@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.middleware import require_readwrite
 from crypto_processing_api.core import auth
 from crypto_processing_api.core.amounts import from_units
@@ -33,7 +34,13 @@ router = APIRouter(tags=["balances"])
 MAX_PAGE = 200
 
 
-@router.get("/v1/users/{external_user_id}/balances", response_model=None)
+@router.get(
+    "/v1/users/{external_user_id}/balances",
+    response_model=schemas.BalancesResponse,
+    operation_id="getUserBalances",
+    summary="Per-asset available, held and total",
+    responses=schemas.error_responses(401, 403),
+)
 def user_balances(
     external_user_id: str,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -78,7 +85,13 @@ def user_balances(
     return {"external_user_id": external_user_id, "balances": balances}
 
 
-@router.get("/v1/users/{external_user_id}/transactions", response_model=None)
+@router.get(
+    "/v1/users/{external_user_id}/transactions",
+    response_model=schemas.TransactionsResponse,
+    operation_id="getUserTransactions",
+    summary="Ledger history from the user's point of view",
+    responses=schemas.error_responses(401, 403),
+)
 def user_transactions(
     external_user_id: str,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
@@ -131,7 +144,13 @@ def user_transactions(
     }
 
 
-@router.get("/v1/assets", response_model=None)
+@router.get(
+    "/v1/assets",
+    response_model=schemas.AssetsResponse,
+    operation_id="listAssets",
+    summary="Enabled assets, their decimals and their limits",
+    responses=schemas.error_responses(401, 403),
+)
 def list_assets(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],
     session: Annotated[Session, Depends(db_session)],
@@ -156,7 +175,13 @@ def list_assets(
     }
 
 
-@router.get("/v1/deposits/{deposit_id}/address-history", response_model=None)
+@router.get(
+    "/v1/deposits/{deposit_id}/address-history",
+    response_model=schemas.AddressHistoryResponse,
+    operation_id="getAddressHistory",
+    summary="Who held this deposit's address, and when",
+    responses=schemas.error_responses(401, 403, 404),
+)
 def address_history(
     deposit_id: uuid.UUID,
     _key: Annotated[auth.AuthenticatedKey, Depends(require_readwrite)],

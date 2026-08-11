@@ -451,3 +451,32 @@ def test_every_route_still_answers_with_the_same_bytes(
         actual = corpus.entries[name]
         assert actual["status"] == expected["status"], f"{name}: status changed"
         assert actual["body"] == expected["body"], f"{name}: response bytes changed"
+
+
+def test_every_route_has_an_operation_id_and_pinned_bytes(app: FastAPI) -> None:
+    """A route with no corpus entry is wire surface nobody is watching.
+
+    The `operation_id` is what a generated SDK names the method, so it is also
+    the natural key for the corpus: the two cannot drift apart without one of
+    these assertions firing.
+    """
+    covered = set(json.loads(GOLDEN.read_text(encoding="utf-8")))
+
+    operations: set[str] = set()
+    unnamed: list[str] = []
+    for route in app.routes:
+        path = str(getattr(route, "path", ""))
+        if not isinstance(getattr(route, "methods", None), set):
+            continue
+        if not getattr(route, "include_in_schema", False) or path.startswith("/_probe"):
+            continue
+        operation_id = getattr(route, "operation_id", None)
+        if operation_id is None:
+            unnamed.append(path)
+        else:
+            operations.add(operation_id)
+
+    assert not unnamed, f"routes without an operation_id: {sorted(unnamed)}"
+    assert not operations - covered, (
+        f"routes with no pinned wire bytes: {sorted(operations - covered)}"
+    )

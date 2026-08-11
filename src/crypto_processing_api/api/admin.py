@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.deposits import serialize_deposit
 from crypto_processing_api.api.middleware import (
     get_gateway,
@@ -55,7 +56,13 @@ class ResolveDepositRequest(BaseModel):
         return self
 
 
-@router.get("/deposits/review", response_model=None)
+@router.get(
+    "/deposits/review",
+    response_model=schemas.AdminDepositQueueResponse,
+    operation_id="adminReviewQueue",
+    summary="Deposits waiting for a human",
+    responses=schemas.error_responses(401, 403),
+)
 def review_queue(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     session: Annotated[Session, Depends(db_session)],
@@ -70,7 +77,13 @@ def review_queue(
     return {"deposits": items}
 
 
-@router.post("/deposits/{deposit_id}/resolve", response_model=None)
+@router.post(
+    "/deposits/{deposit_id}/resolve",
+    response_model=schemas.AdminResolveDepositResponse,
+    operation_id="adminResolveDeposit",
+    summary="Credit or dismiss a deposit under review",
+    responses=schemas.error_responses(401, 403, 404, 409, 503),
+)
 def resolve_deposit(
     deposit_id: uuid.UUID,
     payload: ResolveDepositRequest,
@@ -111,7 +124,13 @@ def resolve_deposit(
     }
 
 
-@router.get("/wallet-alerts", response_model=None)
+@router.get(
+    "/wallet-alerts",
+    response_model=schemas.WalletAlertsResponse,
+    operation_id="adminWalletAlerts",
+    summary="Wallet receives that match no deposit payment",
+    responses=schemas.error_responses(401, 403),
+)
 def wallet_alerts(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     session: Annotated[Session, Depends(db_session)],
@@ -165,7 +184,13 @@ class ReleaseWithdrawalRequest(BaseModel):
     attestation: str = Field(min_length=10, max_length=2000)
 
 
-@router.get("/withdrawals", response_model=None)
+@router.get(
+    "/withdrawals",
+    response_model=schemas.AdminWithdrawalListResponse,
+    operation_id="adminWithdrawalQueue",
+    summary="The withdrawal queue, usually read with ?status=pending_approval",
+    responses=schemas.error_responses(401, 403, 422),
+)
 def withdrawal_queue(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     session: Annotated[Session, Depends(db_session)],
@@ -201,7 +226,13 @@ def _withdrawal_response(session: Session, withdrawal_id: uuid.UUID) -> dict[str
     return serialize_withdrawal(withdrawal, decimals=asset.decimals)
 
 
-@router.post("/withdrawals/{withdrawal_id}/approve", response_model=None)
+@router.post(
+    "/withdrawals/{withdrawal_id}/approve",
+    response_model=schemas.WithdrawalResponse,
+    operation_id="adminApproveWithdrawal",
+    summary="Approve a queued withdrawal",
+    responses=schemas.error_responses(401, 403, 404, 409, 422),
+)
 def approve_withdrawal(
     withdrawal_id: uuid.UUID,
     _payload: ApproveWithdrawalRequest,
@@ -233,7 +264,13 @@ def approve_withdrawal(
     return _withdrawal_response(session, withdrawal_id)
 
 
-@router.post("/withdrawals/{withdrawal_id}/reject", response_model=None)
+@router.post(
+    "/withdrawals/{withdrawal_id}/reject",
+    response_model=schemas.WithdrawalResponse,
+    operation_id="adminRejectWithdrawal",
+    summary="Reject a queued withdrawal and refund immediately",
+    responses=schemas.error_responses(401, 403, 404, 409),
+)
 def reject_withdrawal(
     withdrawal_id: uuid.UUID,
     payload: RejectWithdrawalRequest,
@@ -251,7 +288,13 @@ def reject_withdrawal(
     return _withdrawal_response(session, withdrawal_id)
 
 
-@router.post("/withdrawals/{withdrawal_id}/release", response_model=None)
+@router.post(
+    "/withdrawals/{withdrawal_id}/release",
+    response_model=schemas.WithdrawalResponse,
+    operation_id="adminReleaseWithdrawal",
+    summary="Return a hold after a payout may already exist",
+    responses=schemas.error_responses(401, 403, 404, 409, 422),
+)
 def release_withdrawal(
     withdrawal_id: uuid.UUID,
     payload: ReleaseWithdrawalRequest,
@@ -306,7 +349,13 @@ def build_tron_backend(settings: Settings, gateway: TronGridGateway) -> ManualTr
     )
 
 
-@router.post("/withdrawals/{withdrawal_id}/mark-broadcast", response_model=None)
+@router.post(
+    "/withdrawals/{withdrawal_id}/mark-broadcast",
+    response_model=schemas.WithdrawalResponse,
+    operation_id="adminMarkBroadcast",
+    summary="Record an operator-sent transaction, after verifying it on chain",
+    responses=schemas.error_responses(401, 403, 404, 409, 422, 503),
+)
 def mark_broadcast(
     withdrawal_id: uuid.UUID,
     payload: MarkBroadcastRequest,
@@ -354,7 +403,13 @@ def mark_broadcast(
     return _withdrawal_response(session, withdrawal_id)
 
 
-@router.get("/events", response_model=None)
+@router.get(
+    "/events",
+    response_model=schemas.OutboundEventsResponse,
+    operation_id="adminListEvents",
+    summary="The outbound event queue",
+    responses=schemas.error_responses(401, 403, 422),
+)
 def outbound_events(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     session: Annotated[Session, Depends(db_session)],
@@ -389,7 +444,13 @@ def outbound_events(
     }
 
 
-@router.post("/events/{event_id}/redeliver", response_model=None)
+@router.post(
+    "/events/{event_id}/redeliver",
+    response_model=schemas.RedeliverEventResponse,
+    operation_id="adminRedeliverEvent",
+    summary="Put a dead event back in the queue",
+    responses=schemas.error_responses(401, 403, 404),
+)
 def redeliver_event(
     event_id: uuid.UUID,
     key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
@@ -407,7 +468,13 @@ def redeliver_event(
     return {"id": f"evt_{event_id}", "status": "pending"}
 
 
-@router.get("/reconciliation", response_model=None)
+@router.get(
+    "/reconciliation",
+    response_model=schemas.ReconciliationResponse,
+    operation_id="adminReconciliation",
+    summary="The ledger and custody report Job C runs hourly",
+    responses=schemas.error_responses(401, 403),
+)
 def reconciliation_report(
     _key: Annotated[auth.AuthenticatedKey, Depends(require_admin)],
     settings: Annotated[Settings, Depends(get_settings_dependency)],

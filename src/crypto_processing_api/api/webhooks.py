@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.middleware import get_settings_dependency
 from crypto_processing_api.config import Settings
 from crypto_processing_api.core.redaction import get_logger
@@ -31,7 +32,18 @@ router = APIRouter(tags=["webhooks"])
 logger = get_logger(__name__)
 
 
-@router.post("/webhooks/btcpay", status_code=status.HTTP_200_OK, response_model=None)
+@router.post(
+    "/webhooks/btcpay",
+    status_code=status.HTTP_200_OK,
+    response_model=schemas.WebhookAckResponse,
+    # An accepted event answers `{"status":"accepted"}` and nothing else. Without
+    # this, the model would add `"reason":null` to it — a wire change, and a
+    # visible one to anyone matching the body.
+    response_model_exclude_none=True,
+    operation_id="btcpayWebhook",
+    summary="BTCPay's webhook ingress",
+    responses=schemas.error_responses(400, 401),
+)
 async def btcpay_webhook(
     request: Request,
     session: Annotated[Session, Depends(db_session)],

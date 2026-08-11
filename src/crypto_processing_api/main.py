@@ -27,6 +27,51 @@ from crypto_processing_api.services.assets import sync_payment_methods
 
 logger = get_logger(__name__)
 
+DESCRIPTION = """\
+The accounting layer BTCPay Server does not have: per-user custodial balances,
+deposits and withdrawals over a small authenticated JSON API, backed by an
+append-only double-entry ledger.
+
+**Amounts are decimal strings, always** — `"0.50000000"`, `"199.000000"` —
+never JSON numbers, because 21 million BTC in satoshis is past JavaScript's
+safe integer range. The two request fields `expected_amount` and `amount` are
+integer strings of the asset's smallest unit (`"50000000"`).
+
+**Timestamps are ISO 8601 with an explicit `+00:00` offset.**
+
+**Auth** is `Authorization: Bearer cpk_live_…`. Two scopes: `readwrite` for
+platform calls, `admin` for operator calls. An admin key also satisfies
+`readwrite`.
+
+**Every mutating endpoint requires an `Idempotency-Key` header**, and a retry
+must reuse the same key. A new key is a second deposit or a second withdrawal.
+
+**Errors** are `{"detail": "..."}`. The one exception is a pooled-address
+deposit failure, which uses a structured `detail` object carrying a `code`.
+
+**Every response carries `Cache-Control: no-store`.**
+
+The outbound webhook payloads this service sends are documented separately, in
+`docs/reference/webhook-events.json`.
+"""
+
+TAGS_METADATA = [
+    {"name": "deposits", "description": "Create a deposit and follow it to `settled`."},
+    {"name": "withdrawals", "description": "Request a withdrawal. The hold is placed with it."},
+    {"name": "balances", "description": "Balances, ledger history and asset reference data."},
+    {
+        "name": "admin",
+        "description": "The review and approval queues, the outbound queue, and the "
+        "custody report. Needs an `admin` key.",
+    },
+    {"name": "health", "description": "Liveness and component readiness. No key needed."},
+    {
+        "name": "webhooks",
+        "description": "BTCPay's ingress. Authenticated by HMAC over the raw body, "
+        "never by an API key.",
+    },
+]
+
 
 def sync_payment_methods_at_startup(settings: Settings) -> None:
     """Resolve BTCPay's payment-method ids into the `assets` rows.
@@ -85,7 +130,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="crypto-processing-api",
         version=__version__,
-        summary="Custodial crypto payment and ledger service",
+        summary="Custodial crypto payment and ledger service on top of BTCPay Server",
+        description=DESCRIPTION,
+        openapi_tags=TAGS_METADATA,
+        license_info={"name": "MIT", "identifier": "MIT"},
+        contact={
+            "name": "crypto-processing-api",
+            "url": "https://github.com/OliverD25/crypto-processing-api",
+        },
         lifespan=lifespan,
     )
     app.state.settings = settings

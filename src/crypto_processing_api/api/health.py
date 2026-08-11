@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from crypto_processing_api import __version__
+from crypto_processing_api.api import schemas
 from crypto_processing_api.api.middleware import (
     get_gateway,
     get_settings_dependency,
@@ -33,7 +34,18 @@ router = APIRouter(tags=["health"])
 logger = get_logger(__name__)
 
 
-@router.get("/healthz", summary="Process and database liveness")
+@router.get(
+    "/healthz",
+    summary="Process and database liveness",
+    response_model=schemas.HealthResponse,
+    operation_id="healthz",
+    responses={
+        503: {
+            "model": schemas.HealthResponse,
+            "description": "The database is unreachable. Nothing else is checked here.",
+        }
+    },
+)
 def healthz(session: Session = Depends(db_session)) -> JSONResponse:
     try:
         session.execute(text("SELECT 1"))
@@ -56,7 +68,18 @@ def _component(name: str, ok: bool, detail: str | None = None) -> dict[str, Any]
     return entry
 
 
-@router.get("/readyz", summary="Component readiness")
+@router.get(
+    "/readyz",
+    summary="Component readiness",
+    response_model=schemas.ReadyResponse,
+    operation_id="readyz",
+    responses={
+        503: {
+            "model": schemas.ReadyResponse,
+            "description": "At least one component is degraded. The body names which.",
+        }
+    },
+)
 def readyz(
     session: Annotated[Session, Depends(db_session)],
     settings: Annotated[Settings, Depends(get_settings_dependency)],

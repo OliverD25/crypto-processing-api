@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -74,6 +74,14 @@ def reset_gateway() -> None:
 _bearer = HTTPBearer(auto_error=False, description="cpk_live_… / cpk_test_… API key")
 
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+
+IDEMPOTENCY_HEADER_DESCRIPTION = (
+    "Required. One key per logical operation, chosen by the caller — a UUID is "
+    "the usual choice. **Retry with the same key.** A retry with a new key is a "
+    "second deposit or a second withdrawal, not a retry. The stored response is "
+    "replayed for a completed key; a key still in flight answers 409 with "
+    "`Retry-After`; the same key with a different body answers 422."
+)
 
 
 class NoStoreMiddleware(BaseHTTPMiddleware):
@@ -232,9 +240,17 @@ class Idempotent:
     async def __call__(
         self,
         request: Request,
+        # Declared as a parameter, not read off `request.headers`, so that the
+        # one header every mutating call must send appears in the OpenAPI spec
+        # and in every generated client. The handling below is unchanged: a
+        # missing header is still this endpoint's own 400.
+        idempotency_key: Annotated[
+            str | None,
+            Header(alias=IDEMPOTENCY_HEADER, description=IDEMPOTENCY_HEADER_DESCRIPTION),
+        ] = None,
         session: Session = Depends(db_session),
     ) -> IdempotencyContext:
-        key = request.headers.get(IDEMPOTENCY_HEADER)
+        key = idempotency_key
         if not key:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
