@@ -350,6 +350,26 @@ def test_a_usdt_backend_without_a_tron_gateway_says_what_to_configure(
         )
 
 
+def test_the_registry_builds_the_operator_backend_when_tron_is_configured(
+    session: Session, fake_btcpay: FakeBTCPay
+) -> None:
+    """The profile is what a fork copies. Building the backend through it,
+    rather than reaching for `ManualTronBackend` directly, is what keeps the
+    contract and the wiring the same thing."""
+    usdt = session.get(Asset, USDT)
+    assert usdt is not None
+    profile = asset_registry.profile_for(USDT)
+    assert profile.operator_backend is not None
+
+    backend = profile.operator_backend(
+        asset_registry.RegistryContext(
+            settings=get_settings(), asset=usdt, gateway=fake_btcpay, tron=FakeTronGrid()
+        )
+    )
+    assert backend.name == "manual_tron"
+    assert backend.new_reference().startswith("manual:")
+
+
 def test_usdt_reports_no_custody_source_without_a_tron_gateway(
     session: Session, fake_btcpay: FakeBTCPay
 ) -> None:

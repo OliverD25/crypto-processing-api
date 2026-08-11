@@ -329,10 +329,11 @@ def test_a_payout_with_no_echoed_id_is_still_applied(
     assert withdrawal_service.get(session, withdrawal.id).status is WithdrawalStatus.BROADCAST
 
 
-def test_btcpay_accepting_the_payout_changes_the_row_but_announces_nothing(
+def test_btcpay_re_reporting_a_queued_payout_announces_nothing(
     session: Session, session_factory: sessionmaker[Session], fake_btcpay: FakeBTCPay
 ) -> None:
-    """`AwaitingPayment` moves the row on, and the platform hears nothing: a
+    """`AwaitingApproval` and `AwaitingPayment` both map to `submitted`, so a
+    row already there does not move and the platform hears nothing. A
     withdrawal is news when it broadcasts, not when BTCPay queues it."""
     withdrawal = make_hold(session, user="accepted")
     submit(session_factory, fake_btcpay)
