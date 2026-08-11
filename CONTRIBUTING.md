@@ -23,11 +23,39 @@ make lint       # ruff check + format check
 make typecheck  # mypy --strict over src/
 make test       # unit + integration
 make ci         # all of it, the same as the pipeline
+make contracts  # regenerate docs/reference/ after a route or payload change
 ```
 
 CI runs exactly these. If they pass locally they pass there — that is on
 purpose, and a change that only fails in CI is a bug in the setup worth
 reporting.
+
+## The published contracts
+
+`docs/reference/openapi.json` and `docs/reference/webhook-events.json` are
+generated and committed, and CI regenerates them and fails on any difference.
+**If you touch a route, a request model, a response model or an outbound event
+payload, run `make contracts` and commit the result.** The SDKs are generated
+from those two files, so a stale one ships a client that disagrees with the
+server in somebody's production.
+
+Two related things, in the same spirit:
+
+- **`tests/integration/test_wire_bytes.py` compares raw response bytes** — not
+  parsed JSON — against a corpus captured before the response models existed.
+  It is what stops a `response_model` silently turning `+00:00` into `Z` or an
+  amount string into a JSON number, both of which every `response.json()` test
+  in the suite would sail straight past. If it goes red, the wire format moved;
+  regenerating the corpus (`WIRE_GOLDEN_WRITE=1 pytest
+  tests/integration/test_wire_bytes.py`) is a deliberate act that belongs in
+  the changelog under Breaking / Migration, never a way to make a build green.
+- **Outbound event payloads are built through the models in
+  `services/events.py`.** A field that is not declared there is dropped rather
+  than sent, which is on purpose: it makes the exported schema true by
+  construction instead of by review.
+
+What a release is allowed to change about any of this is in
+[`docs/reference/versioning.md`](docs/reference/versioning.md).
 
 ## Test tiers
 

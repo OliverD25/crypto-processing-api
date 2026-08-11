@@ -436,6 +436,12 @@ Optional. If you would rather poll, leave `PLATFORM_WEBHOOK_URL` unset and
 nothing changes — events queue up server-side and are never lost, so you can
 turn delivery on later and receive the backlog.
 
+Every payload shape is published as JSON Schema at
+[`reference/webhook-events.json`](reference/webhook-events.json), one
+discriminated union over the eight `type` values. Generate your parser from it
+rather than writing one by hand: that file comes from the same models the
+server builds the payloads with, and CI fails if the two ever disagree.
+
 ```
 POST /your/endpoint
 Content-Type: application/json
