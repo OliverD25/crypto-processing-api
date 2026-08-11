@@ -407,6 +407,8 @@ class Record:
     withdrawal_confirmed_at: str = ""
     withdrawal_confirm_height: int = 0
     withdrawal_confirmations_seen: int = 0
+    balance_before_available: int = 0
+    balance_before_held: int = 0
 
     duplicate_withdrawal_id: str = ""
     duplicate_status: int = 0
@@ -857,12 +859,14 @@ def stage_deposit(ctx: Context) -> None:
         raise NileFailure(f"credited {credited} micro-USDT, expected exactly {DEPOSIT_MICRO}")
     log(f"  credited exactly {usdt(credited)} USDT")
 
-    txid = ask_until(
-        "Paste the TRON transaction id of that transfer (from your wallet or TronScan).",
-        valid=looks_like_txid,
-        hint="that is not a 64-character hex transaction id; try again",
-    )
-    record.deposit_txid = txid.lower().removeprefix("0x")
+    if not record.deposit_txid:
+        txid = ask_until(
+            "Paste the TRON transaction id of that transfer (from your wallet or TronScan).",
+            valid=looks_like_txid,
+            hint="that is not a 64-character hex transaction id; try again",
+        )
+        record.deposit_txid = txid.lower().removeprefix("0x")
+        save_record(record)
     transaction = ctx.nile.get_transaction(record.deposit_txid)
     if transaction is None:
         raise NileFailure("TronGrid has no transaction with that id")
@@ -895,10 +899,13 @@ def stage_withdrawal(ctx: Context) -> None:
         )
         save_record(record)
 
-    before = ctx.api.balances()
-    log(f"  balance before: {usdt(before['available'])} available, {usdt(before['held'])} held")
-
     if not record.withdrawal_id:
+        # Read before the request, and keep it: requesting a withdrawal moves
+        # the gross out of `available` into `held`, so a resumed run reading
+        # this now would compare the end state against itself.
+        opening = ctx.api.balances()
+        record.balance_before_available = opening["available"]
+        record.balance_before_held = opening["held"]
         created = ctx.api.create_withdrawal(
             WITHDRAW_MICRO, record.withdrawal_destination, f"nile-wd-{time.time()}"
         )
@@ -914,33 +921,44 @@ def stage_withdrawal(ctx: Context) -> None:
         record.withdrawal_net_micro = micros(approved["amount_net"])
         save_record(record)
 
+    before = {
+        "available": record.balance_before_available,
+        "held": record.balance_before_held,
+    }
+    log(
+        f"  balance before the request: {usdt(before['available'])} available, "
+        f"{usdt(before['held'])} held"
+    )
     log(
         f"  approved: gross {usdt(record.withdrawal_gross_micro)} USDT, "
         f"fee {usdt(record.withdrawal_fee_micro)}, net {usdt(record.withdrawal_net_micro)}"
     )
-    confirm(
-        f"Send exactly {usdt(record.withdrawal_net_micro)} USDT on Nile from the hot\n"
-        f"       wallet {config.hot_wallet}\n"
-        f"       to {record.withdrawal_destination}."
-    )
 
-    for attempt in range(1, 4):
-        txid = ask_until(
-            "Paste the transaction id of the transfer you just sent.",
-            valid=looks_like_txid,
-            hint="that is not a 64-character hex transaction id; try again",
+    if not record.withdrawal_txid:
+        confirm(
+            f"Send exactly {usdt(record.withdrawal_net_micro)} USDT on Nile from the hot\n"
+            f"       wallet {config.hot_wallet}\n"
+            f"       to {record.withdrawal_destination}."
         )
-        status, detail = ctx.api.mark_broadcast(record.withdrawal_id, txid)
-        if status == 200:
-            record.withdrawal_txid = txid.lower().removeprefix("0x")
-            record.withdrawal_broadcast_at = now()
-            save_record(record)
-            log("  the server fetched that transaction and checked every part of the claim")
-            break
-        log(f"  attempt {attempt} refused with {status}: {detail}")
-        log("  that refusal is the system working. Check the txid, amount and destination.")
+        for attempt in range(1, 4):
+            txid = ask_until(
+                "Paste the transaction id of the transfer you just sent.",
+                valid=looks_like_txid,
+                hint="that is not a 64-character hex transaction id; try again",
+            )
+            status, detail = ctx.api.mark_broadcast(record.withdrawal_id, txid)
+            if status == 200:
+                record.withdrawal_txid = txid.lower().removeprefix("0x")
+                record.withdrawal_broadcast_at = now()
+                save_record(record)
+                log("  the server fetched that transaction and checked every part of the claim")
+                break
+            log(f"  attempt {attempt} refused with {status}: {detail}")
+            log("  that refusal is the system working. Check the txid, amount and destination.")
+        else:
+            raise NileFailure("three transaction ids in a row failed the full-tuple check")
     else:
-        raise NileFailure("three transaction ids in a row failed the full-tuple check")
+        log(f"  resuming with the transaction already recorded: {record.withdrawal_txid}")
 
     transaction = ctx.nile.get_transaction(record.withdrawal_txid)
     if transaction is None or transaction.block_number is None:
@@ -1002,6 +1020,10 @@ def stage_duplicate(ctx: Context) -> None:
 
     if not record.withdrawal_txid:
         raise NileFailure("stage 3 has to have recorded a transaction id first")
+
+    if record.duplicate_status == 409:
+        log(f"  already refused in an earlier run: {record.duplicate_detail}")
+        return
 
     if not record.duplicate_withdrawal_id:
         created = ctx.api.create_withdrawal(
