@@ -222,6 +222,9 @@ withdrawal verifier refuses any transfer of a different one.
 The Nile contract address shipped as a default in `config.py` is
 format-verified only — it has not been confirmed against a live Nile node.
 Check it against whatever the plugin is pointed at before trusting it.
+The guided check for exactly this is the
+[Nile verification runbook](runbook-nile-verification.md) — its preflight
+reads `symbol()` and `decimals()` from the live contract on both networks.
 
 ## 3. Address pool — the part with the sharp edge
 

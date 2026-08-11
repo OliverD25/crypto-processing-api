@@ -19,6 +19,11 @@ Everything below assumes an `admin`-scope API key.
 5. `POST /v1/admin/withdrawals/{id}/mark-broadcast {"txid": "..."}`
 6. Confirmation happens on its own
 
+Before doing this against real funds for the first time, rehearse the whole
+flow on the Nile testnet with the
+[Nile verification runbook](runbook-nile-verification.md) — it walks these
+exact steps with test money and verifies the on-chain checks fire.
+
 ---
 
 ## 1. The queue

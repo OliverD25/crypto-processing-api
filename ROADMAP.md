@@ -72,9 +72,10 @@ not when it is started.
   idempotency-key discipline across retries. Both are built and tested in
   [`sdks/`](sdks/); publishing waits on two registry accounts that do not exist
   yet, listed in [`sdks/README.md`](sdks/README.md).
-- [ ] **Docs site** — the existing markdown, published, with the OpenAPI
+- [x] **Docs site** — the existing markdown, published, with the OpenAPI
   reference rendered from the committed spec and a generated configuration
   page so `.env.example` can never drift from `Settings` again.
+  Live at <https://oliverd25.github.io/crypto-processing-api/>.
 - [x] **Example integration app** — a small platform that creates a deposit,
   polls it, shows balances, requests a withdrawal, and receives webhooks the
   way the docs say to. It lives in

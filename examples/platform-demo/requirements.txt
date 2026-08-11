@@ -13,7 +13,7 @@ uvicorn==0.52.1
 # FastAPI renders the pages with it, and parses the HTML form posts with the
 # one below. Neither is pulled in by FastAPI itself.
 jinja2==3.1.6
-python-multipart==0.0.20
+python-multipart==0.0.32
 
 # The client, taken from this repository rather than from PyPI, so the example
 # is always compiled against the SDK in the tree next to it. Your platform
