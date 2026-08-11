@@ -35,3 +35,7 @@ Thumbs.db
 
 # Hypothesis keeps failing counterexamples here. Useful locally, noise in git.
 .hypothesis/
+
+# Node / TypeScript SDK
+node_modules/
+sdks/typescript/dist/

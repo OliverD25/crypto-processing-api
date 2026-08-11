@@ -1,0 +1,49 @@
+{
+  "name": "@oliverd25/crypto-processing-client",
+  "version": "0.2.0-dev.0",
+  "description": "TypeScript client for crypto-processing-api: deposits, withdrawals, balances and signed webhooks",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OliverD25/crypto-processing-api.git",
+    "directory": "sdks/typescript"
+  },
+  "homepage": "https://github.com/OliverD25/crypto-processing-api/tree/main/sdks/typescript",
+  "bugs": "https://github.com/OliverD25/crypto-processing-api/issues",
+  "keywords": [
+    "bitcoin",
+    "btcpay",
+    "custodial",
+    "ledger",
+    "usdt",
+    "sdk"
+  ],
+  "scripts": {
+    "generate": "openapi-ts",
+    "build": "tsc --project tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "@types/node": "26.2.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}
