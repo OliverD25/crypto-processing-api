@@ -6,6 +6,85 @@ nothing about your stack beyond HTTP and JSON.
 > **Status: v0.1.0.** Deposits, withdrawals and outbound webhooks work for BTC
 > and USDT-TRC20. Every endpoint is listed in [`api.md`](api.md).
 
+## Start here if you are on Python or Node
+
+There are two clients, and they do the two things this page will otherwise
+spend a lot of words telling you to do by hand: carry an `Idempotency-Key`
+correctly across retries, and verify a webhook signature over the raw body
+bytes in constant time.
+
+```sh
+pip install crypto-processing-client
+npm install @oliverd25/crypto-processing-client
+```
+
+The whole loop, in Python:
+
+```python
+from crypto_processing_client import CryptoProcessingClient
+
+client = CryptoProcessingClient("https://pay.example.com", api_key="cpk_live_...")
+
+deposit = client.create_deposit(external_user_id="user-42", asset="BTC")
+print(deposit.address, deposit.checkout_link)     # show one of these to the user
+
+# later, after a webhook or a poll says something changed
+deposit = client.get_deposit(deposit.deposit_id)
+if deposit.status == "settled":
+    balances = client.get_user_balances("user-42")
+    print(next(b.available for b in balances.balances if b.asset == "BTC"))
+
+withdrawal = client.create_withdrawal(
+    external_user_id="user-42",
+    asset="BTC",
+    amount="25000000",                            # gross, smallest units, a string
+    destination_address="bc1q...",
+)
+print(withdrawal.status)                          # pending_approval, or already moving
+```
+
+The same loop, in TypeScript:
+
+```ts
+import { CryptoProcessingClient } from '@oliverd25/crypto-processing-client';
+
+const client = new CryptoProcessingClient({
+  baseUrl: 'https://pay.example.com',
+  apiKey: 'cpk_live_...',
+});
+
+let deposit = await client.createDeposit({ external_user_id: 'user-42', asset: 'BTC' });
+console.log(deposit.address, deposit.checkout_link);
+
+deposit = await client.getDeposit(deposit.deposit_id);
+if (deposit.status === 'settled') {
+  const balances = await client.getUserBalances('user-42');
+  console.log(balances.balances.find((b) => b.asset === 'BTC')?.available);
+}
+
+const withdrawal = await client.createWithdrawal({
+  external_user_id: 'user-42',
+  asset: 'BTC',
+  amount: '25000000',
+  destination_address: 'bc1q...',
+});
+console.log(withdrawal.status);
+```
+
+Both mint an `Idempotency-Key` per call and reuse it on every retry of that
+call, retry a `503` and an in-flight `409` while honouring `Retry-After`, and
+raise a typed error for every refusal. Both leave amounts and timestamps as
+strings.
+
+Everything below still applies — the clients are a convenience over this API,
+not a different one. If you are on another stack, read on; there is nothing
+here you cannot do with an HTTP library.
+
+The request layer of both clients is generated from
+[`reference/openapi.json`](reference/openapi.json), which CI regenerates and
+compares on every change, so a client cannot describe a server that does not
+exist. See [`../sdks/README.md`](../sdks/README.md).
+
 ## The one rule
 
 **This service is the source of truth for balances. Your database is not.**
@@ -462,6 +541,38 @@ re-queue it.
 The scheme is Stripe's. The timestamp is inside the signed string, so a captured
 request cannot be replayed tomorrow.
 
+**If you are on Python or Node, use the client and skip the rest of this
+section.** Both verify and parse in one call, and both are checked against
+[`../sdks/signature-vectors.json`](../sdks/signature-vectors.json) — the same
+cases the server's own verifier is checked against, so they cannot quietly
+disagree with it.
+
+```python
+from crypto_processing_client import parse_event, UnknownEventTypeError, WebhookVerificationError
+
+try:
+    event = parse_event(raw_body, request.headers, secret=WEBHOOK_SECRET)
+except WebhookVerificationError:
+    return Response(status_code=401)
+except UnknownEventTypeError:
+    return Response(status_code=200)     # a newer server sent a type you do not know
+```
+
+```ts
+import { parseEvent, UnknownEventTypeError, WebhookVerificationError }
+  from '@oliverd25/crypto-processing-client';
+
+try {
+  const event = await parseEvent(req.body, req.headers, process.env.WEBHOOK_SECRET!);
+} catch (error) {
+  if (error instanceof UnknownEventTypeError) return res.sendStatus(200);
+  if (error instanceof WebhookVerificationError) return res.sendStatus(401);
+  throw error;
+}
+```
+
+What they do, if you are writing it yourself:
+
 ```python
 import hashlib
 import hmac
@@ -480,13 +591,47 @@ def verify(secret: str, raw_body: bytes, header: str, tolerance: int = 300) -> b
     return hmac.compare_digest(expected, presented)
 ```
 
+The same thing in Node, with no dependencies:
+
+```ts
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+export function verify(secret: string, rawBody: Buffer, header: string, tolerance = 300): boolean {
+  const parts = new Map(
+    header.split(',').map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]),
+  );
+  const timestamp = parts.get('t');
+  const presented = parts.get('v1');
+  if (!timestamp || !presented || !/^\d+$/.test(timestamp)) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp)) > tolerance) return false;
+
+  const expected = createHmac('sha256', secret)
+    .update(Buffer.concat([Buffer.from(`${timestamp}.`, 'utf8'), rawBody]))
+    .digest('hex');
+  // timingSafeEqual throws when the lengths differ, and a thrown error inside a
+  // webhook handler is a 500 that looks like an outage rather than a rejection.
+  if (expected.length !== presented.length) return false;
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(presented));
+}
+```
+
 Three things that are easy to get wrong:
 
 1. **Use the raw request body.** Parsing the JSON and re-serializing it changes
    the whitespace and the signature will never match. Read the bytes first.
-2. **Use `compare_digest`**, not `==`.
+2. **Use `compare_digest`** (`timingSafeEqual` in Node), not `==`.
 3. **Enforce the timestamp window** — five minutes is the convention. Without
    it the signature proves authenticity but not freshness.
+
+Two more that only Node adds:
+
+4. **Express parses the body before you see it.** `express.json()` hands you an
+   object, and re-serializing it can never be relied on to reproduce the bytes.
+   Mount the webhook route with `express.raw({ type: 'application/json' })`, or
+   keep the bytes with
+   `express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } })`.
+5. **`timingSafeEqual` throws when the two buffers differ in length.** Compare
+   lengths first and return `false`, as above.
 
 ### Handling an event
 

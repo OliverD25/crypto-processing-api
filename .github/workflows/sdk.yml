@@ -1,0 +1,332 @@
+name: SDKs
+
+# Two jobs' worth of work and one idea behind it: the clients are generated
+# from the committed OpenAPI document, so nobody can change a route without the
+# clients changing in the same pull request. Everything else here — the tests,
+# the shared signature vectors — protects the small handwritten layer that
+# codegen cannot produce.
+#
+# The publish jobs are deliberately inert. Neither registry account exists yet;
+# both jobs report what is missing and succeed, so a release does not go red
+# over an account nobody has created. See sdks/README.md for the two setup
+# steps that switch them on.
+
+on:
+  pull_request:
+    paths:
+      - "docs/reference/**"
+      - "sdks/**"
+      - "scripts/export_openapi.py"
+      - "scripts/export_signature_vectors.py"
+      - "scripts/generate_event_types.py"
+      - "src/crypto_processing_api/api/**"
+      - "src/crypto_processing_api/services/events.py"
+      - "src/crypto_processing_api/core/signing.py"
+      - ".github/workflows/sdk.yml"
+  # No path filter on push. A tag has to reach the publish jobs whatever it
+  # happened to touch, and `main` being publishable at all times is worth two
+  # minutes of runner.
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: sdk-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  drift:
+    name: the generated cores must match the spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - run: pip install -e ".[dev]"
+      # A separate pinned toolchain: the generator and the ruff that runs as
+      # its post-hook. Both pins are what make the output the same bytes here
+      # and on a laptop.
+      - run: pip install -r sdks/python/requirements-generate.txt
+      - run: npm ci --no-audit --no-fund
+        working-directory: sdks/typescript
+
+      - name: Regenerate the contracts and the Python core
+        run: |
+          python scripts/export_openapi.py
+          python scripts/export_signature_vectors.py
+          python scripts/generate_event_types.py
+          # Deleted first, so a route that no longer exists leaves a deletion
+          # in the diff instead of a stale file nothing would notice.
+          rm -rf sdks/python/crypto_processing_client/_generated
+          openapi-python-client generate \
+            --path docs/reference/openapi.json \
+            --meta none \
+            --config sdks/python/openapi-python-client.yaml \
+            --output-path sdks/python/crypto_processing_client/_generated \
+            --overwrite
+
+      - name: Regenerate the TypeScript core
+        run: npm run generate
+        working-directory: sdks/typescript
+
+      - name: Nothing may have changed
+        run: |
+          if ! git diff --exit-code -- docs/reference sdks; then
+            echo "::error::the committed SDKs are not what the spec produces."
+            echo "::error::Run \`make sdks\` and commit the result. See sdks/README.md."
+            exit 1
+          fi
+
+      # A generator whose output moves between runs makes the gate above a coin
+      # toss, and the failure would land on whoever touched the spec next
+      # rather than on whoever changed the generator.
+      - name: Regenerating twice must change nothing either
+        run: |
+          python scripts/export_signature_vectors.py
+          python scripts/generate_event_types.py
+      - run: npm run generate
+        working-directory: sdks/typescript
+      - run: git diff --exit-code -- docs/reference sdks
+
+  vectors:
+    name: the server must agree with the vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # The third implementation of the signature scheme. The two SDK jobs
+      # below run the same cases against theirs.
+      - run: pytest tests/unit/test_signature_vectors.py -q
+
+  python:
+    name: python client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # Ruff runs from the repository root, because the root configuration is
+      # what excludes the generated tree and nothing else should.
+      - run: ruff check sdks/python
+        working-directory: .
+      - run: ruff format --check sdks/python
+        working-directory: .
+      # --strict over the handwritten layer and the generated core alike. The
+      # generated core passes today, and an exemption appearing here later
+      # would be a signal the generator started emitting something worse.
+      - run: mypy
+      - run: pytest -q
+      - name: The wheel must build
+        run: |
+          python -m pip install --quiet build
+          python -m build --wheel --outdir ../../dist-python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel
+          path: dist-python/*.whl
+          if-no-files-found: error
+
+  typescript:
+    name: typescript client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: The package must contain what it says it does
+        run: npm pack --pack-destination ../../dist-npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: dist-npm/*.tgz
+          if-no-files-found: error
+
+  versions:
+    name: a tag must agree with both package versions
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # One version number covers the image, the API and both SDKs
+      # (docs/reference/versioning.md). Publishing 0.2.0.dev0 under a v0.2.0
+      # tag would break that quietly and permanently — a version on PyPI cannot
+      # be reused once it exists.
+      - name: The tag, the wheel and the package must be the same release
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PY=$(grep -m1 '^version = ' sdks/python/pyproject.toml | cut -d'"' -f2)
+          TS=$(node -p "require('./sdks/typescript/package.json').version")
+          echo "tag=$TAG python=$PY typescript=$TS"
+          # npm spells a pre-release `0.2.0-dev.0` and Python spells it
+          # `0.2.0.dev0`; a final release is the same string in both.
+          if [ "$PY" != "$TAG" ] || [ "$TS" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match sdks/python/pyproject.toml ($PY)"
+            echo "::error::or sdks/typescript/package.json ($TS). Bump both, then re-tag."
+            exit 1
+          fi
+
+  publish-pypi:
+    name: publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [drift, vectors, python, typescript, versions]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
+      # there is no long-lived token in the repository to leak or rotate.
+      id-token: write
+    steps:
+      - name: Is the trusted publisher registered?
+        id: gate
+        run: |
+          # A repository variable rather than a secret, because there is no
+          # secret involved — it only records that the one-time registration on
+          # PyPI has happened. Until it is set, this job says so and passes.
+          if [ "${{ vars.PYPI_TRUSTED_PUBLISHER }}" = "true" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PyPI publishing is off. Set the repository variable"
+            echo "::notice::PYPI_TRUSTED_PUBLISHER=true once the trusted publisher is"
+            echo "::notice::registered. See sdks/README.md, 'Turning publishing on'."
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.ready == 'true'
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Has this version already been published?
+        id: existing
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          # A release that leaves a client unchanged skips publishing it rather
+          # than shipping an identical version (docs/reference/versioning.md).
+          VERSION=$(grep -m1 '^version = ' sdks/python/pyproject.toml | cut -d'"' -f2)
+          URL="https://pypi.org/pypi/crypto-processing-client/$VERSION/json"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          if [ "$CODE" = "200" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::crypto-processing-client $VERSION is already on PyPI; nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the distributions
+        if: steps.gate.outputs.ready == 'true' && steps.existing.outputs.skip == 'false'
+        run: |
+          python -m pip install --quiet build
+          python -m build --outdir dist sdks/python
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: steps.gate.outputs.ready == 'true' && steps.existing.outputs.skip == 'false'
+        with:
+          packages-dir: dist
+          # Belt and braces with the check above: a race between two runs must
+          # fail the upload quietly rather than fail the release.
+          skip-existing: true
+
+  publish-npm:
+    name: publish to npm
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [drift, vectors, python, typescript, versions]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      # Provenance: npm records which workflow, at which commit, built the
+      # tarball. The repository is public, so the attestation is verifiable.
+      id-token: write
+    steps:
+      - name: Is there a token to publish with?
+        id: gate
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # npm's OIDC-only publishing is not available for this package shape
+          # yet, so one scoped automation token is still required.
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::npm publishing is off. Add the repository secret NPM_TOKEN"
+            echo "::notice::(an automation token scoped to @oliverd25/crypto-processing-client)."
+            echo "::notice::See sdks/README.md, 'Turning publishing on'."
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Has this version already been published?
+        id: existing
+        if: steps.gate.outputs.ready == 'true'
+        working-directory: sdks/typescript
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME=$(node -p "require('./package.json').name")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME $VERSION is already on npm; nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and publish
+        if: steps.gate.outputs.ready == 'true' && steps.existing.outputs.skip == 'false'
+        working-directory: sdks/typescript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          # A pre-release version must not become `latest` for everyone who
+          # types `npm install`.
+          TAG=latest
+          case "$(node -p "require('./package.json').version")" in
+            *-*) TAG=next ;;
+          esac
+          npm publish --provenance --access public --tag "$TAG"

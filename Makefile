@@ -58,6 +58,9 @@ contracts: ## Regenerate the committed OpenAPI, webhook and signature contracts
 
 .PHONY: sdk-python
 sdk-python: ## Regenerate the Python SDK core from the committed spec
+	# Deleted first, so a route that no longer exists leaves a deletion in the
+	# diff instead of a stale file the drift gate would happily ignore.
+	rm -rf sdks/python/crypto_processing_client/_generated
 	openapi-python-client generate \
 	  --path docs/reference/openapi.json \
 	  --meta none \
