@@ -131,8 +131,41 @@ stack booted with a placeholder hot wallet would verify withdrawals against an
 address nobody owns. So the `.env` values must exist before `up` can work,
 which means you need your wallets (section 2) before this section.
 
-The Nile override adds the TRON settings to the ordinary regtest stack. The BTC
-half stays entirely offline; only the USDT half needs the internet.
+The Nile override adds the TRON settings to the regtest stack — and moves the
+BTC side of it to a **peerless testnet**. That second part is forced: the USDt
+plugin maps BTCPay's Bitcoin chain to a TRON network (mainnet→mainnet,
+testnet→Nile) and crashes at load on anything else, so a regtest BTCPay cannot
+run it at all (plugin 0.6.1.0, crash observed live 2026-08-11). The testnet
+bitcoind runs with no peers — no DNS seeds, no listening, no outbound — so it
+sits at the genesis block and never syncs anything. The BTC half stays entirely
+offline either way; only the USDT half needs the internet. BTC drills do not
+run in this mode; they belong to the plain regtest stack.
+
+Because the override points BTCPay at testnet-named databases, the first `up`
+in this mode starts from a fresh BTCPay: `bootstrap_btcpay.py` re-creates the
+admin user and store (new password in `.env.regtest.generated`), and the USDt
+plugin has to be installed once in this BTCPay too.
+
+**Before the bootstrap, mine one block.** NBXplorer refuses to serve wallets
+while the newest block is older than five months — its own rule, on top of
+bitcoind's two IBD gates the override already disarms — and the testnet
+genesis block is from 2011. Testnet allows a minimum-difficulty block when
+none arrived for 20 minutes, and minimum difficulty is CPU-mineable (a few
+billion hashes; the RPC caps one call at 2 of them, hence the loop —
+seconds to minutes per call, ~40% chance each):
+
+```sh
+docker exec cpapi-regtest-bitcoind-1 sh -c '
+  bitcoin-cli -datadir=/data createwallet miner 2>/dev/null;
+  ADDR=$(bitcoin-cli -datadir=/data -rpcwallet=miner getnewaddress);
+  while [ "$(bitcoin-cli -datadir=/data getblockcount)" -lt 1 ]; do
+    bitcoin-cli -datadir=/data -rpcclienttimeout=0 generatetoaddress 1 "$ADDR" 2000000000;
+  done; bitcoin-cli -datadir=/data getblockcount'
+```
+
+Wait for `docker compose ps` to show BTCPay up and
+`curl http://127.0.0.1:14142/api/v1/health` to answer
+`{"synchronized":true}` before running the bootstrap.
 
 ```sh
 docker compose --env-file .env \

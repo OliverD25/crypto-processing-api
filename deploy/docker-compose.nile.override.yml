@@ -40,14 +40,72 @@
 # would create invoices for an address nobody is watching.
 
 services:
+  # The USDt plugin picks its TRON network from BTCPay's *Bitcoin* chain, and
+  # its configuration provider fetches that hardcoded mapping before it reads
+  # any override: BTC mainnet -> TRON mainnet, BTC testnet -> Nile, anything
+  # else -> NotSupportedException at plugin load (verified against the plugin
+  # 0.6.1.0 source, live crash 2026-08-11). A regtest BTCPay cannot run the
+  # plugin at all. So this override moves the whole BTC side to a *peerless*
+  # testnet: no DNS seeds, no listening, no outbound connections — the chain
+  # sits at the genesis block forever and nothing syncs. The BTC drills do not
+  # run in this mode; they belong to the plain regtest stack. Only the USDT
+  # half is under test here.
+  bitcoind:
+    environment:
+      BITCOIN_NETWORK: testnet
+      # Compose merges environment per key, so this replaces the regtest list
+      # wholesale: the base args are repeated, then the isolation flags.
+      BITCOIN_EXTRA_ARGS: |
+        rpcport=43782
+        rpcbind=0.0.0.0:43782
+        rpcallowip=0.0.0.0/0
+        port=39388
+        whitelist=0.0.0.0/0
+        fallbackfee=0.0002
+        # No outbound connections and no DNS seeding — but the node still
+        # listens: NBXplorer joins it as a P2P peer to hear about blocks, and
+        # the port is exposed only inside the compose network, never published
+        # to the host. listen=1 must be explicit: setting connect at all
+        # silently disables listening otherwise.
+        connect=0
+        dnsseed=0
+        listen=1
+        # Without peers the node would sit in "initial block download" forever,
+        # and NBXplorer refuses wallet operations during IBD. Two gates keep a
+        # genesis-only testnet node in IBD: the tip is from 2011 (maxtipage
+        # declares an ancient tip acceptable) and the chain has none of the
+        # work the real testnet accumulated (minimumchainwork=0 waives the
+        # compiled-in threshold). Both are needed; either alone leaves IBD on.
+        maxtipage=1000000000
+        minimumchainwork=0x0000000000000000000000000000000000000000000000000000000000000000
+
+  nbxplorer:
+    environment:
+      NBXPLORER_NETWORK: testnet
+      # A database per chain. Reusing the regtest index for a different chain
+      # is not a state NBXplorer supports.
+      NBXPLORER_POSTGRES: >-
+        User ID=postgres;Password=postgres;Host=postgres-btcpay;Port=5432;
+        Application Name=nbxplorer;MaxPoolSize=20;Database=nbxplorertestnet
+
   btcpayserver:
     environment:
+      BTCPAY_NETWORK: testnet
+      BTCPAY_POSTGRES: >-
+        User ID=postgres;Password=postgres;Host=postgres-btcpay;Port=5432;
+        Application Name=btcpayserver;Database=btcpayservertestnet
+      BTCPAY_EXPLORERPOSTGRES: >-
+        User ID=postgres;Password=postgres;Host=postgres-btcpay;Port=5432;
+        Application Name=btcpayserver;MaxPoolSize=80;Database=nbxplorertestnet
       # The plugin reads its endpoint from its own settings, not from here.
       # This only makes the intent visible in `docker compose config`.
       BTCPAY_USDT_NETWORK: nile
 
   api: &tron_env
     environment:
+      # Matches the testnet BTCPay above. Only used to validate BTC withdrawal
+      # destinations, which this session never creates — set for consistency.
+      BITCOIN_NETWORK: testnet
       TRON_NETWORK: nile
       # Required. Keyless TronGrid is throttled unpredictably, and what gets
       # throttled is the check that a withdrawal really happened.
