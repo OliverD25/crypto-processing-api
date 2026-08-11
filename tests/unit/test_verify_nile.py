@@ -436,7 +436,14 @@ def test_the_report_carries_every_number_the_log_asks_for() -> None:
 
 
 def test_the_report_says_so_when_the_fake_already_matched() -> None:
-    assert "none — the fake matched" in render_log_section(filled_record())
+    record = filled_record()
+    record.mark_done(5)
+    assert "none — the fake matched" in render_log_section(record)
+
+
+def test_an_uncompared_session_does_not_claim_the_fake_matched() -> None:
+    """No differences and never having looked read identically otherwise."""
+    assert "not compared yet" in render_log_section(filled_record())
 
 
 def test_every_shape_difference_reaches_the_report() -> None:
@@ -445,8 +452,35 @@ def test_every_shape_difference_reaches_the_report() -> None:
     assert "gettransactioninfobyid + `fee`" in render_log_section(record)
 
 
+def test_a_green_run_downgrades_both_caveats_by_name() -> None:
+    section = render_log_section(filled_record())
+    assert "`USDT_CONTRACT_NILE` was" in section
+    assert "`TRON_CONFIRMATIONS=19` was" in section
+
+
 def test_an_empty_record_still_renders_rather_than_crashing() -> None:
     """The report stage runs after a failed session too, and that is when the
     partial evidence is worth the most."""
     section = render_log_section(Record())
     assert "## Run of —" in section
+
+
+def test_a_session_that_did_not_finish_downgrades_nothing() -> None:
+    """The worst outcome would be a report claiming a constant is confirmed
+    after a run that never read it."""
+    section = render_log_section(Record())
+    assert "**None.** This session did not get far enough" in section
+    assert "It is now confirmed" not in section
+
+
+def test_a_contract_read_alone_does_not_downgrade_the_confirmation_depth() -> None:
+    """Stage 1 passing says nothing about what stage 3 would have proved."""
+    record = Record(nile_symbol="USDT", nile_decimals=6, confirmations_required=19)
+    section = render_log_section(record)
+    assert "It is now confirmed" in section
+    assert "`TRON_CONFIRMATIONS=19` was" not in section
+
+
+def test_a_shallower_confirmation_than_configured_downgrades_nothing() -> None:
+    record = Record(confirmations_required=19, withdrawal_confirmations_seen=4)
+    assert "`TRON_CONFIRMATIONS=19` was" not in render_log_section(record)

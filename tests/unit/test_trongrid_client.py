@@ -443,6 +443,14 @@ def test_a_longer_symbol_survives_its_padding() -> None:
     assert client.get_trc20_metadata(USDT_CONTRACT_NILE).symbol == "Tether USD"
 
 
+def test_a_string_whose_length_overruns_its_data_is_refused(slept: list[float]) -> None:
+    """Truncated return data must not read as a shortened symbol."""
+    truncated = f"{32:064x}{100:064x}{b'USDT'.ljust(32, b'0').hex()}"
+    client, _ = make_client(httpx.Response(200, json=constant_result(truncated)))
+    with pytest.raises(TronGridContractError, match="unreadable symbol"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
 def test_a_symbol_that_is_not_text_is_refused(slept: list[float]) -> None:
     client, _ = make_client(httpx.Response(200, json=constant_result("ff" * 32)))
     with pytest.raises(TronGridContractError, match="not UTF-8"):
@@ -465,6 +473,16 @@ def test_return_data_that_is_not_hexadecimal_is_refused(slept: list[float]) -> N
 def test_a_truncated_word_is_refused_rather_than_padded(slept: list[float]) -> None:
     client, _ = make_client(httpx.Response(200, json=constant_result("41" * 8)))
     with pytest.raises(TronGridContractError, match="at least one 32-byte word"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_decimals_that_are_not_hexadecimal_are_refused(slept: list[float]) -> None:
+    """Full-width junk. Reading it as anything would scale every amount."""
+    client, _ = make_client(
+        httpx.Response(200, json=constant_result(abi_string("USDT"))),
+        httpx.Response(200, json=constant_result("z" * 64)),
+    )
+    with pytest.raises(TronGridContractError, match="not hexadecimal"):
         client.get_trc20_metadata(USDT_CONTRACT_NILE)
 
 

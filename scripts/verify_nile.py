@@ -1111,32 +1111,72 @@ def stage_report(ctx: Context) -> None:
     print(section)
 
 
+def or_missing(value: str) -> str:
+    """An em dash where a stage never got far enough to record anything."""
+    return value or "—"
+
+
+def downgraded_caveats(record: Record) -> str:
+    """Only the caveats this run actually earned the right to downgrade.
+
+    The report is written after a failed session too, and that is when it is
+    worth the most. So each line is conditional on the evidence for it: a
+    partial run must not print a sentence saying a constant is now confirmed.
+    """
+    lines: list[str] = []
+    if record.nile_symbol == "USDT" and record.nile_decimals == 6:
+        lines.append(
+            '- `USDT_CONTRACT_NILE` was "format-verified only, NOT confirmed against a\n'
+            '  live Nile node". It is now confirmed: the contract answers `USDT` / `6`,\n'
+            f"  read from `{record.nile_contract}` on {record.nile_endpoint}."
+        )
+    if record.confirmations_required and (
+        record.withdrawal_confirmations_seen >= record.confirmations_required
+    ):
+        lines.append(
+            f"- `TRON_CONFIRMATIONS={record.confirmations_required}` was a documented "
+            "assumption about TRON's\n  solidified-block distance. A withdrawal was confirmed "
+            f"{record.withdrawal_confirmations_seen}\n  blocks deep and not before."
+        )
+    return "\n".join(lines) or (
+        "- **None.** This session did not get far enough to downgrade anything. A\n"
+        "  partial run is a failed run, and the caveats stay exactly as they are."
+    )
+
+
 def render_log_section(record: Record) -> str:
     """The verification-log entry, in the shape the template's table expects."""
-    diffs = "; ".join(record.shape_diffs) if record.shape_diffs else "none — the fake matched"
+    if record.shape_diffs:
+        diffs = "; ".join(record.shape_diffs)
+    elif 5 in record.stages_done:
+        diffs = "none — the fake matched"
+    else:
+        diffs = "not compared yet"
     rows = [
-        ("Date (UTC)", f"{record.started_at or '—'} → {record.finished_at or '—'}"),
-        ("Network", f"{record.network} ({record.nile_endpoint})"),
+        ("Date (UTC)", f"{or_missing(record.started_at)} → {or_missing(record.finished_at)}"),
+        ("Network", f"{record.network} ({or_missing(record.nile_endpoint)})"),
         (
             "Nile USDT contract",
-            f"`{record.nile_contract}` — `symbol()` = `{record.nile_symbol}`, "
-            f"`decimals()` = `{record.nile_decimals}`",
+            f"`{or_missing(record.nile_contract)}` — `symbol()` = "
+            f"`{or_missing(record.nile_symbol)}`, `decimals()` = `{record.nile_decimals}`",
         ),
         (
             "Mainnet USDT contract",
-            f"`{record.mainnet_contract}` — `symbol()` = `{record.mainnet_symbol}`, "
-            f"`decimals()` = `{record.mainnet_decimals}` (read-only)",
+            f"`{or_missing(record.mainnet_contract)}` — `symbol()` = "
+            f"`{or_missing(record.mainnet_symbol)}`, `decimals()` = "
+            f"`{record.mainnet_decimals}` (read-only)",
         ),
         (
             "Deposit",
-            f"`{record.deposit_txid}` — {usdt(record.deposit_credited_micro)} USDT to "
-            f"`{record.deposit_address}`, credited exactly",
+            f"`{or_missing(record.deposit_txid)}` — {usdt(record.deposit_credited_micro)} USDT "
+            f"credited, paid to the pool address `{or_missing(record.deposit_address)}`",
         ),
         (
             "Withdrawal",
-            f"`{record.withdrawal_txid}` — gross {usdt(record.withdrawal_gross_micro)}, fee "
-            f"{usdt(record.withdrawal_fee_micro)}, net {usdt(record.withdrawal_net_micro)} USDT "
-            f"to `{record.withdrawal_destination}`",
+            f"`{or_missing(record.withdrawal_txid)}` — gross "
+            f"{usdt(record.withdrawal_gross_micro)}, fee {usdt(record.withdrawal_fee_micro)}, "
+            f"net {usdt(record.withdrawal_net_micro)} USDT to "
+            f"`{or_missing(record.withdrawal_destination)}`",
         ),
         (
             "Confirmation depth",
@@ -1146,8 +1186,8 @@ def render_log_section(record: Record) -> str:
         ),
         (
             "Duplicate txid",
-            f"withdrawal `{record.duplicate_withdrawal_id}` answered "
-            f"`{record.duplicate_status}`: {record.duplicate_detail}",
+            f"withdrawal `{or_missing(record.duplicate_withdrawal_id)}` answered "
+            f"`{record.duplicate_status}`: {or_missing(record.duplicate_detail)}",
         ),
         ("Payload-shape differences", diffs),
     ]
@@ -1160,11 +1200,7 @@ def render_log_section(record: Record) -> str:
 
 Caveats downgraded by this run:
 
-- `USDT_CONTRACT_NILE` was "format-verified only, NOT confirmed against a live
-  Nile node". It is now confirmed: the contract answers `USDT` / `6`.
-- `TRON_CONFIRMATIONS={record.confirmations_required}` was a documented assumption
-  about TRON's solidified-block distance. A withdrawal was confirmed
-  {record.withdrawal_confirmations_seen} blocks deep and not before.
+{downgraded_caveats(record)}
 
 Raw payloads: `spike-evidence-nile/` in the operator's working copy. They are
 not committed — they contain nothing secret, but they are a session's
