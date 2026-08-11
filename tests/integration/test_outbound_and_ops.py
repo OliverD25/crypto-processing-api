@@ -37,27 +37,6 @@ PLATFORM_URL = "https://platform.test/hooks/crypto"
 SECRET = "platform-webhook-secret"
 
 
-class RecordingTransport:
-    """Captures alerts instead of sending them anywhere."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, str, str]] = []
-
-    def send(self, severity: Severity, code: str, message: str) -> None:
-        self.sent.append((severity.value, code, message))
-
-    def codes(self) -> list[str]:
-        return [code for _severity, code, _message in self.sent]
-
-
-@pytest.fixture
-def alerts() -> Any:
-    transport = RecordingTransport()
-    notifier.set_transport(transport)
-    yield transport
-    notifier.set_transport(None)
-
-
 @pytest.fixture
 def outbound_settings(monkeypatch: pytest.MonkeyPatch) -> Any:
     settings = get_settings()

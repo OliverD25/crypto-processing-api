@@ -25,6 +25,8 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from crypto_processing_api.alerts import notifier
+from crypto_processing_api.alerts.notifier import Severity
 from crypto_processing_api.api.middleware import get_gateway
 from crypto_processing_api.cli import asset_specs
 from crypto_processing_api.config import get_settings
@@ -196,6 +198,28 @@ def client(app: FastAPI) -> Iterator[TestClient]:
     # Not a context manager on purpose: running the lifespan would dispose the
     # engine the rest of the fixtures are still using.
     yield TestClient(app)
+
+
+class RecordingTransport:
+    """Captures alerts instead of sending them anywhere."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []
+
+    def send(self, severity: Severity, code: str, message: str) -> None:
+        self.sent.append((severity.value, code, message))
+
+    def codes(self) -> list[str]:
+        return [code for _severity, code, _message in self.sent]
+
+
+@pytest.fixture
+def alerts() -> Iterator[RecordingTransport]:
+    """Every alert this test raises, without a network."""
+    transport = RecordingTransport()
+    notifier.set_transport(transport)
+    yield transport
+    notifier.set_transport(None)
 
 
 @pytest.fixture
