@@ -33,6 +33,26 @@ updates:
     commit-message:
       prefix: "deps"
 
+  # The docs toolchain, pinned in its own file so a site build never resolves a
+  # different Material for MkDocs than the last one. Pinned and unwatched is
+  # the worse of the two failure modes, which is what this entry prevents.
+  # Material reaches end of life in November 2026; the pull requests stopping is
+  # the signal to re-evaluate Zensical, not a reason to unpin.
+  - package-ecosystem: pip
+    directory: "/docs"
+    schedule:
+      interval: monthly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Kyiv
+    open-pull-requests-limit: 1
+    groups:
+      docs:
+        patterns: ["*"]
+    labels: ["dependencies", "area: docs"]
+    commit-message:
+      prefix: "deps"
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
