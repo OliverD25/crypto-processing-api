@@ -1,0 +1,146 @@
+{
+  "adminApproveWithdrawal": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"approved\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01000000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 200
+  },
+  "adminListEvents": {
+    "body": "{\"events\":[{\"id\":\"evt_<uuid>\",\"raw_id\":\"<uuid>\",\"type\":\"deposit.settled\",\"status\":\"dead\",\"attempts\":10,\"next_attempt_at\":\"<timestamp+00:00>\",\"last_error\":\"502 from the platform\",\"created_at\":\"<timestamp+00:00>\",\"payload\":{\"deposit_id\":\"<uuid>\",\"amount_credited\":\"0.50000000\"}}]}",
+    "status": 200
+  },
+  "adminMarkBroadcast": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-usdt\",\"asset\":\"USDT_TRC20\",\"status\":\"broadcast\",\"destination_address\":\"TZ41bNgsRf1SyS9ksdAs5e1w9fKNsrYe3F\",\"amount_gross\":\"200.000000\",\"fee\":\"1.000000\",\"amount_net\":\"199.000000\",\"approval_mode\":\"manual\",\"txid\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 200
+  },
+  "adminReconciliation": {
+    "body": "{\"healthy\":false,\"ledger_consistent\":true,\"materialized_vs_derived_drifts\":[],\"unbalanced_entries\":[],\"alerts\":[\"BTC: the wallet holds 100000000 but users are owed 300000000\"],\"custody\":[{\"asset\":\"BTC\",\"ledger_custody\":\"300000000\",\"ledger_in_flight\":\"0\",\"user_obligations\":\"300000000\",\"chain_balance\":\"100000000\",\"chain_source\":\"btcpay_wallet\",\"expected_shortfall\":\"0\",\"difference\":\"-200000000\",\"insolvent\":true},{\"asset\":\"USDT_TRC20\",\"ledger_custody\":\"500000000\",\"ledger_in_flight\":\"199000000\",\"user_obligations\":\"500000000\",\"chain_balance\":\"1000000000\",\"chain_source\":\"trongrid\",\"expected_shortfall\":\"199000000\",\"difference\":\"699000000\",\"insolvent\":false}]}",
+    "status": 200
+  },
+  "adminRedeliverEvent": {
+    "body": "{\"id\":\"evt_<uuid>\",\"status\":\"pending\"}",
+    "status": 200
+  },
+  "adminRejectWithdrawal": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"refunded\",\"destination_address\":\"bcrt1qdcaqy5dph55w0nyfg2zdu7nkrmzwpkwsej29yq\",\"amount_gross\":\"0.01100000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":\"destination is not the user's\",\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 200
+  },
+  "adminReleaseWithdrawal": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"refunded\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01200000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 200
+  },
+  "adminResolveDeposit": {
+    "body": "{\"deposit\":{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-late\",\"asset\":\"BTC\",\"status\":\"settled\",\"address\":\"bcrt1qu4ww4e44yqn96h9ejmukmy5fjjj40frg2zwz8j\",\"checkout_link\":\"https://btcpay.test/i/inv-2\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":null,\"amount_credited\":\"0.50000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[{\"payment_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0002-0\",\"amount\":\"0.50000000\",\"credited\":true,\"credited_at\":\"<timestamp+00:00>\",\"after_expiration\":true,\"resolved_by\":\"<volatile>\"}]},\"credited\":\"0.50000000\"}",
+    "status": 200
+  },
+  "adminReviewQueue": {
+    "body": "{\"deposits\":[{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-late\",\"asset\":\"BTC\",\"status\":\"review\",\"address\":\"bcrt1qu4ww4e44yqn96h9ejmukmy5fjjj40frg2zwz8j\",\"checkout_link\":\"https://btcpay.test/i/inv-2\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":null,\"amount_credited\":\"0.00000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[{\"payment_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0002-0\",\"amount\":\"0.50000000\",\"credited\":false,\"credited_at\":null,\"after_expiration\":true,\"resolved_by\":null}]}]}",
+    "status": 200
+  },
+  "adminWalletAlerts": {
+    "body": "{\"alerts\":[{\"id\":1,\"asset\":\"BTC\",\"txid\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"amount\":\"0.00012345\",\"confirmations\":3,\"detected_at\":\"<timestamp+00:00>\",\"note\":\"no deposit payment matches this receive\"}]}",
+    "status": 200
+  },
+  "adminWithdrawalQueue": {
+    "body": "{\"withdrawals\":[{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"approved\",\"destination_address\":\"bcrt1qdcaqy5dph55w0nyfg2zdu7nkrmzwpkwsej29yq\",\"amount_gross\":\"0.00100000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"auto\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\",\"approved_by\":\"auto\",\"rejected_by\":null,\"released_by\":null,\"release_attestation\":null,\"backend_ref\":null}]}",
+    "status": 200
+  },
+  "btcpayWebhook": {
+    "body": "{\"status\":\"accepted\"}",
+    "status": 200
+  },
+  "btcpayWebhookIgnored": {
+    "body": "{\"status\":\"ignored\",\"reason\":\"different store\"}",
+    "status": 200
+  },
+  "createDeposit": {
+    "body": "{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending\",\"address\":\"bcrt1qakxe0syt7wkayqgccadyayhtfxhk9mvmvtq0sx\",\"checkout_link\":\"https://btcpay.test/i/inv-1\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":\"0.50000000\",\"amount_credited\":\"0.00000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[]}",
+    "status": 201
+  },
+  "createDepositForReview": {
+    "body": "{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-late\",\"asset\":\"BTC\",\"status\":\"pending\",\"address\":\"bcrt1qu4ww4e44yqn96h9ejmukmy5fjjj40frg2zwz8j\",\"checkout_link\":\"https://btcpay.test/i/inv-2\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":null,\"amount_credited\":\"0.00000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[]}",
+    "status": 201
+  },
+  "createWithdrawal": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"approved\",\"destination_address\":\"bcrt1qdcaqy5dph55w0nyfg2zdu7nkrmzwpkwsej29yq\",\"amount_gross\":\"0.00100000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"auto\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 201
+  },
+  "createWithdrawalPendingApproval": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending_approval\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01000000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\",\"approval_reason\":\"above the per-withdrawal auto-approval limit\"}",
+    "status": 201
+  },
+  "createWithdrawalToReject": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending_approval\",\"destination_address\":\"bcrt1qdcaqy5dph55w0nyfg2zdu7nkrmzwpkwsej29yq\",\"amount_gross\":\"0.01100000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\",\"approval_reason\":\"above the per-withdrawal auto-approval limit\"}",
+    "status": 201
+  },
+  "createWithdrawalToRelease": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending_approval\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01200000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\",\"approval_reason\":\"above the per-withdrawal auto-approval limit\"}",
+    "status": 201
+  },
+  "createWithdrawalUsdt": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-usdt\",\"asset\":\"USDT_TRC20\",\"status\":\"pending_approval\",\"destination_address\":\"TZ41bNgsRf1SyS9ksdAs5e1w9fKNsrYe3F\",\"amount_gross\":\"200.000000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\",\"approval_reason\":\"asset requires manual approval\"}",
+    "status": 201
+  },
+  "errorForbidden": {
+    "body": "{\"detail\":\"insufficient scope\"}",
+    "status": 403
+  },
+  "errorInsufficientBalance": {
+    "body": "{\"detail\":\"available balance 0 is less than the requested 100000\"}",
+    "status": 402
+  },
+  "errorMissingIdempotencyKey": {
+    "body": "{\"detail\":\"Idempotency-Key header is required on this endpoint\"}",
+    "status": 400
+  },
+  "errorNotFound": {
+    "body": "{\"detail\":\"no such deposit\"}",
+    "status": 404
+  },
+  "errorUnauthorized": {
+    "body": "{\"detail\":\"missing bearer API key\"}",
+    "status": 401
+  },
+  "errorValidation": {
+    "body": "{\"detail\":\"address contains a character outside base58\"}",
+    "status": 422
+  },
+  "getAddressHistory": {
+    "body": "{\"address\":\"bcrt1qakxe0syt7wkayqgccadyayhtfxhk9mvmvtq0sx\",\"reservations\":[{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"status\":\"settled\",\"reserved_from\":\"<timestamp+00:00>\",\"reserved_until\":\"<timestamp+00:00>\"}]}",
+    "status": 200
+  },
+  "getDeposit": {
+    "body": "{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"settled\",\"address\":\"bcrt1qakxe0syt7wkayqgccadyayhtfxhk9mvmvtq0sx\",\"checkout_link\":\"https://btcpay.test/i/inv-1\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":\"0.50000000\",\"amount_credited\":\"0.50000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[{\"payment_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0001-0\",\"amount\":\"0.50000000\",\"credited\":true,\"credited_at\":\"<timestamp+00:00>\",\"after_expiration\":false,\"resolved_by\":\"auto\"}]}",
+    "status": 200
+  },
+  "getUserBalances": {
+    "body": "{\"external_user_id\":\"wire-user\",\"balances\":[{\"asset\":\"BTC\",\"available\":\"2.50000000\",\"held\":\"0.00000000\",\"total\":\"2.50000000\"}]}",
+    "status": 200
+  },
+  "getUserTransactions": {
+    "body": "{\"transactions\":[{\"posting_id\":4,\"entry_id\":2,\"kind\":\"deposit_credit\",\"asset\":\"BTC\",\"account\":\"user_available\",\"amount\":\"0.50000000\",\"direction\":\"credit\",\"source_ref\":\"btcpay_payment:inv-1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0001-0\",\"memo\":\"deposit <uuid>\",\"created_at\":\"<timestamp+00:00>\"}],\"next_cursor\":4}",
+    "status": 200
+  },
+  "getWithdrawal": {
+    "body": "{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending_approval\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01000000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}",
+    "status": 200
+  },
+  "healthz": {
+    "body": "{\"status\":\"ok\",\"database\":\"ok\",\"version\":\"<version>\"}",
+    "status": 200
+  },
+  "listAssets": {
+    "body": "{\"assets\":[{\"asset\":\"BTC\",\"display_name\":\"Bitcoin\",\"decimals\":8,\"unit_name\":\"sat\",\"enabled\":true,\"withdrawal_min\":\"0.00000001\",\"withdrawal_auto_limit\":\"0.00500000\",\"withdrawal_daily_cap\":\"0.05000000\",\"withdrawal_flat_fee\":\"0.00000000\"},{\"asset\":\"USDT_TRC20\",\"display_name\":\"Tether USD (TRC-20)\",\"decimals\":6,\"unit_name\":\"microUSDT\",\"enabled\":true,\"withdrawal_min\":\"0.000001\",\"withdrawal_auto_limit\":\"200.000000\",\"withdrawal_daily_cap\":\"2000.000000\",\"withdrawal_flat_fee\":\"1.000000\"}]}",
+    "status": 200
+  },
+  "listUserDeposits": {
+    "body": "{\"deposits\":[{\"deposit_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"settled\",\"address\":\"bcrt1qakxe0syt7wkayqgccadyayhtfxhk9mvmvtq0sx\",\"checkout_link\":\"https://btcpay.test/i/inv-1\",\"expires_at\":\"<timestamp+00:00>\",\"address_reserved_until\":\"<timestamp+00:00>\",\"amount_expected\":\"0.50000000\",\"amount_credited\":\"0.50000000\",\"created_at\":\"<timestamp+00:00>\",\"payments\":[]}],\"next_cursor\":\"<uuid>\"}",
+    "status": 200
+  },
+  "listUserWithdrawals": {
+    "body": "{\"withdrawals\":[{\"withdrawal_id\":\"<uuid>\",\"external_user_id\":\"wire-user\",\"asset\":\"BTC\",\"status\":\"pending_approval\",\"destination_address\":\"bcrt1q2fhpadugqsm3twzvpg8veawxeudcsaq7ufxxfj\",\"amount_gross\":\"0.01000000\",\"fee\":null,\"amount_net\":null,\"approval_mode\":\"manual\",\"txid\":null,\"failure_reason\":null,\"created_at\":\"<timestamp+00:00>\",\"updated_at\":\"<timestamp+00:00>\"}],\"next_cursor\":\"<uuid>\"}",
+    "status": 200
+  },
+  "readyz": {
+    "body": "{\"status\":\"ready\",\"components\":[{\"name\":\"database\",\"status\":\"ok\"},{\"name\":\"btcpay\",\"status\":\"ok\"},{\"name\":\"worker\",\"status\":\"ok\",\"detail\":\"1 jobs reporting\"}]}",
+    "status": 200
+  }
+}
