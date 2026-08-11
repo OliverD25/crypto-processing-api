@@ -1,12 +1,55 @@
 # crypto-processing-api
 
-Open-source, single-tenant, custodial crypto payment and ledger service. It
-sits between **your platform backend** and a **self-hosted
-[BTCPay Server](https://btcpayserver.org/)**. Your platform calls it
-backend-to-backend to create deposits, request withdrawals and read balances.
-This service owns the double-entry money ledger; BTCPay owns the blockchain.
+**The accounting layer BTCPay Server does not have.** Run it next to your own
+BTCPay node and your platform gets per-user crypto balances, deposits and
+withdrawals through a small authenticated JSON API — backed by an append-only
+double-entry ledger that a webhook cannot corrupt, a reconciliation sweep that
+does not trust the fast path, and a threat model that starts from "the hot
+wallet is the loss ceiling". Self-hosted, single-tenant, MIT.
 
-Runs on one small VPS next to BTCPay. Built for a €4/month Hetzner CAX11.
+Your platform calls it backend-to-backend. This service owns the money ledger;
+BTCPay owns the blockchain. It runs on one small VPS next to BTCPay — built for
+a €4/month Hetzner CAX11.
+
+## Who this is for
+
+- You need **per-user custodial balances** in BTC or USDT — a marketplace, a
+  game economy, SaaS credits — and "one invoice, one payment" is not enough.
+- You are willing to run BTCPay Server and one VPS yourself.
+- You want the money-correctness machinery already built: idempotency,
+  double-entry accounting, approval queues, velocity caps, and a reconciliation
+  job that finds what the fast path missed.
+
+## Who this is not for
+
+- **You want non-custodial checkout.** Then you want BTCPay on its own. Adding
+  this means you now hold customer funds, which is a legal and operational
+  position, not a feature.
+- **You want zero operations.** A hosted processor takes the work by taking
+  your float. That is a real trade and sometimes the right one.
+- **You need one BTC balance spendable over either rail.** `BTC` and `BTC_LN`
+  are separate floats here — see the box below — and merging them is on the
+  [not-planned list](ROADMAP.md#not-planned).
+- **You need multi-tenancy, many assets, or something audited at scale.** One
+  deployment serves one platform, three assets ship, and there has been no
+  external audit. See [`ROADMAP.md`](ROADMAP.md).
+
+## How it compares
+
+|  | Raw BTCPay Server | Hosted processor | **This project** | Building it yourself |
+|---|---|---|---|---|
+| Per-user ledger and balances | none — invoices only | their database, their rules | double-entry, append-only, yours | months of subtle work |
+| **Custody** | you | **them** | **you** | you |
+| Fees | node costs | a percentage of volume | node + VPS costs | your time |
+| KYC / account risk | none | their policies; they can freeze | none | none |
+| Withdrawal controls | manual | theirs | holds, velocity caps, approval queue | build them |
+| Correctness under crash and retry | not applicable | opaque | idempotency + a reconciliation sweep, drilled on regtest | the hard part |
+| Audit trail | an invoice list | a CSV export | an immutable journal in your PostgreSQL | build it |
+| Trust required | your node | a third party holding your float | your node + this code (MIT, readable) | your code |
+
+The honest row is custody. **This project does not remove custody risk — it
+gives you the controls and the books.** A hosted processor removes the work by
+taking the float. Pick the one whose risk you would rather hold.
 
 ## What it does
 
@@ -54,7 +97,7 @@ git clone https://github.com/OliverD25/crypto-processing-api && cd crypto-proces
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 docker compose -f deploy/docker-compose.test.yml up -d   # test database
-pytest                                                    # 775 tests
+pytest                                                    # 788 tests
 
 docker compose -f deploy/docker-compose.regtest.yml up -d # bitcoind, BTCPay, api, worker
 python scripts/bootstrap_btcpay.py                        # configure BTCPay
@@ -92,6 +135,9 @@ risks, is in [`docs/security.md`](docs/security.md).
 |---|---|
 | [`integrating.md`](docs/integrating.md) | platform developers: lifecycles, idempotency, webhook verification |
 | [`api.md`](docs/api.md) | every endpoint, every error code |
+| [`reference/openapi.json`](docs/reference/openapi.json) | the machine-readable API contract; CI fails if it and the code disagree |
+| [`reference/webhook-events.json`](docs/reference/webhook-events.json) | the JSON Schema of all eight outbound events, behind the same gate |
+| [`reference/versioning.md`](docs/reference/versioning.md) | what a release may change, what it never will, and how deprecations run |
 | [`deployment.md`](docs/deployment.md) | a fresh VPS to a running deployment |
 | [`btcpay-setup.md`](docs/btcpay-setup.md) | what BTCPay needs, including the manual USDt plugin steps |
 | [`extending.md`](docs/extending.md) | adding your own asset: the four pluggable facets, what is welded shut, and how `BTC_LN` was added commit by commit |
@@ -102,26 +148,43 @@ risks, is in [`docs/security.md`](docs/security.md).
 | [`runbook-usdt-attribution.md`](docs/runbook-usdt-attribution.md) | pooled-address deposits that need a human |
 | [`runbook-reorg.md`](docs/runbook-reorg.md) | a credited deposit was orphaned |
 | [`runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md) | moving value between the on-chain and Lightning floats |
+| [`ROADMAP.md`](ROADMAP.md) | what is coming, and what is deliberately not planned |
 | [`design/`](docs/design/) | the architecture, and the adversarial review it survived |
 
 ## Status
 
-**v0.1.0.** Every money path has tests, including concurrency tests with real
-threads against real PostgreSQL, and end-to-end drills against a real BTCPay on
-regtest. It has not been through an external audit and has not run at scale.
+**v0.1.1 released; v0.2 in progress on `main`.** 788 tests, including
+concurrency tests with real threads against real PostgreSQL, property-based
+tests over the ledger, and end-to-end drills against a real BTCPay on regtest.
+The API and webhook contracts are committed under
+[`docs/reference/`](docs/reference/) and CI fails if the code and the spec
+disagree.
 
-Read [`docs/security.md`](docs/security.md) before pointing real funds at it,
-and start with amounts you would not mind losing.
+**It has not been through an external audit and has not run at scale.** Read
+[`docs/security.md`](docs/security.md) before pointing real funds at it, and
+start with amounts you would not mind losing.
 
-Not in this version: automated USDT sending (there is no payout handler in the
-BTCPay plugin — Phase 2 adds a signer), HMAC request signing for inbound auth,
-a unified BTC balance spendable over either rail, multi-tenancy.
+Not in this version: automated USDT sending (the BTCPay plugin has no payout
+handler — Phase 2 adds a signer), HMAC request signing for inbound auth, a
+unified BTC balance spendable over either rail, multi-tenancy. Where the rest
+is going, and what is deliberately not planned: [`ROADMAP.md`](ROADMAP.md).
 
 ## Contributing
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md). One rule stands out: a pull request
-touching `ledger/` or `services/` has to say which invariants still hold and
-why.
+touching `ledger/` or `services/` has to say which of the nine ledger
+invariants still hold and why — the pull-request template lists them so you do
+not have to go looking.
+
+Good places to start are the issues labelled
+[`good first issue`](https://github.com/OliverD25/crypto-processing-api/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
+which are self-contained and mostly outside the money paths. Two things are
+worth more than any feature: an adversarial read of `ledger/service.py` and
+`services/withdrawals.py`, and an operator's account of running this with real
+money — there is an
+[issue template](.github/ISSUE_TEMPLATE/operator-report.yml) for exactly that.
+
+By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
