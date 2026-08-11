@@ -139,6 +139,7 @@ the whole thing, searchable, tracking `main`. The same files are in
 |---|---|
 | [Integrating](https://oliverd25.github.io/crypto-processing-api/integrating/) | writing the platform that calls this: lifecycles, idempotency, webhook verification |
 | [Client libraries](https://oliverd25.github.io/crypto-processing-api/integrating/sdks/) | on Python or Node and want the two hard parts already done |
+| [Example application](https://oliverd25.github.io/crypto-processing-api/integrating/example-app/) | someone who would rather read a working integration than a specification |
 | [API endpoints](https://oliverd25.github.io/crypto-processing-api/reference/api/) | looking up a route or an error code |
 | [Deploying](https://oliverd25.github.io/crypto-processing-api/operating/deployment/) | going from a fresh VPS to a running deployment |
 | [Security model](https://oliverd25.github.io/crypto-processing-api/operating/security/) | deciding whether to point real money at this |

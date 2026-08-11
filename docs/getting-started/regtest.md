@@ -9,7 +9,7 @@ here touches a real chain and no key is worth anything.
 
 ## What is in the stack
 
-`deploy/docker-compose.regtest.yml` starts seven containers:
+`deploy/docker-compose.regtest.yml` starts seven containers by default:
 
 | Container | What it is |
 |---|---|
