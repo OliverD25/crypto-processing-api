@@ -77,8 +77,9 @@ sdk-ts: ## Regenerate the TypeScript SDK core from the committed spec
 sdks: contracts sdk-python sdk-ts ## Regenerate every generated file both SDKs contain
 
 .PHONY: cov
-cov: ## Ledger coverage gate (the CI floor)
-	$(BIN)/pytest --cov=src/crypto_processing_api/ledger --cov-report=term-missing --cov-fail-under=85
+cov: ## Coverage gates: 97% over src/, 85% over the ledger (what CI runs)
+	$(BIN)/pytest --cov=src/crypto_processing_api --cov-report=term-missing --cov-fail-under=97
+	$(BIN)/coverage report --include="src/crypto_processing_api/ledger/*" --fail-under=85
 
 .PHONY: db-up
 db-up: ## Start the throwaway test Postgres (host port 54329)

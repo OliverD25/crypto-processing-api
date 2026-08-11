@@ -82,13 +82,29 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -e ".[dev]"
-      # The ledger is the only module with a coverage floor. It is the module
-      # where an untested branch is a lost coin.
-      - run: >-
+      # Branch coverage, not line coverage: `branch = true` in pyproject. A
+      # line-only floor counts an `if` as covered when only one side of it has
+      # ever run, which on a money path is the half that matters.
+      #
+      # 97 is two points below what the suite actually reaches, so a flake
+      # cannot redden a pull request that added nothing. It is a floor, not a
+      # target — if a change drops the real number to 97.1 the gate stays
+      # green and the reviewer is the one who has to notice.
+      - name: The whole package has a floor
+        run: >-
           pytest -q
-          --cov=src/crypto_processing_api/ledger
+          --cov=src/crypto_processing_api
           --cov-report=term-missing
-          --cov-fail-under=85
+          --cov-fail-under=97
+      # The ledger's own floor, kept separate and kept lower. It is a public
+      # promise in README.md and CONTRIBUTING.md, so it moves only
+      # deliberately — and it reads from the run above rather than repeating
+      # the suite.
+      - name: The ledger keeps its own promise
+        run: >-
+          coverage report
+          --include="src/crypto_processing_api/ledger/*"
+          --fail-under=85
       # A property failure is a sequence of steps, and the sequence lives in
       # this directory. Without it the log says a counterexample was found and
       # gives you no way to run it again.

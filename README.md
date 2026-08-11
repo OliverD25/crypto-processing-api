@@ -97,7 +97,7 @@ git clone https://github.com/OliverD25/crypto-processing-api && cd crypto-proces
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 docker compose -f deploy/docker-compose.test.yml up -d   # test database
-pytest                                                    # 788 tests
+pytest                                                    # 1207 tests
 
 docker compose -f deploy/docker-compose.regtest.yml up -d # bitcoind, BTCPay, api, worker
 python scripts/bootstrap_btcpay.py                        # configure BTCPay
@@ -153,9 +153,12 @@ risks, is in [`docs/security.md`](docs/security.md).
 
 ## Status
 
-**v0.1.1 released; v0.2 in progress on `main`.** 788 tests, including
+**v0.1.1 released; v0.2 in progress on `main`.** 1207 tests, including
 concurrency tests with real threads against real PostgreSQL, property-based
 tests over the ledger, and end-to-end drills against a real BTCPay on regtest.
+CI enforces **97% branch coverage over `src/`** and 85% over `ledger/`, and
+branch coverage is the point: a line-only floor calls an `if` covered when only
+one side of it has ever run, and on a money path that is the half that matters.
 The API and webhook contracts are committed under
 [`docs/reference/`](docs/reference/) and CI fails if the code and the spec
 disagree.
