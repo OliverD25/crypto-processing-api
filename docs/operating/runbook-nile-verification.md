@@ -125,6 +125,12 @@ default, this is where you find out.
 
 ## 4. Bring the stack up (10 minutes)
 
+**Do [section 8](#8-the-environment-5-minutes) first.** The Nile override
+refuses to start without `TRON_HOT_WALLET_ADDRESS` — deliberately, because a
+stack booted with a placeholder hot wallet would verify withdrawals against an
+address nobody owns. So the `.env` values must exist before `up` can work,
+which means you need your wallets (section 2) before this section.
+
 The Nile override adds the TRON settings to the ordinary regtest stack. The BTC
 half stays entirely offline; only the USDT half needs the internet.
 
