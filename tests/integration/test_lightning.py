@@ -15,6 +15,8 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,6 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from crypto_processing_api.alerts import notifier
 from crypto_processing_api.config import get_settings
 from crypto_processing_api.core.addresses import decode_bolt11
+from crypto_processing_api.gateway.btcpay_client import BTCPayUnavailable
 from crypto_processing_api.ledger import service as ledger
 from crypto_processing_api.ledger.models import Account, AccountKind, Asset, WithdrawalStatus
 from crypto_processing_api.services import asset_registry
@@ -34,6 +37,7 @@ from crypto_processing_api.services.asset_registry import (
     build_registry,
     crypto_code_of,
 )
+from crypto_processing_api.services.backends import BackendPayout, BackendPayoutState
 from crypto_processing_api.workers import payout_submitter, reconciliation
 from tests.fakes import FakeBTCPay, mint_bolt11
 from tests.integration.conftest import BTC_LN, bearer
@@ -912,3 +916,112 @@ def test_the_crypto_code_is_the_chain_not_the_payment_method() -> None:
     assert crypto_code_of("BTC-LN") == "BTC"
     assert crypto_code_of("BTC_LightningLike") == "BTC"
     assert crypto_code_of("BTC") == "BTC"
+
+
+# -- the timeout job when BTCPay stops answering ---------------------------
+
+
+def test_a_timed_out_payout_that_cannot_be_polled_is_counted_and_left(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+) -> None:
+    """Deciding a payout is dead means giving the user their balance back. On
+    no information at all, the only safe move is to change nothing."""
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-nopoll"
+    )
+    age_submission(session, withdrawal_id, minutes=30)
+    fake_btcpay.fail_next["get_payout"] = BTCPayUnavailable("BTCPay is down", status_code=503)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.checked == 1
+    assert report.errors == 1
+    assert report.released == 0
+    assert report.needs_attestation == 0
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.status == WithdrawalStatus.SUBMITTED
+
+
+def test_btcpay_disappearing_after_the_cancel_leaves_the_hold_in_place(
+    client: TestClient,
+    session: Session,
+    session_factory: sessionmaker[Session],
+    fake_btcpay: FakeBTCPay,
+    readwrite_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The state is re-read after cancelling, because cancelling changes it.
+    Losing BTCPay in that window must not release a hold on a payout whose
+    fate is now unknown."""
+    withdrawal_id = submit_only(
+        session, session_factory, fake_btcpay, client, readwrite_key, user="ln-midway"
+    )
+    age_submission(session, withdrawal_id, minutes=30)
+
+    original = fake_btcpay.get_payout
+    polls = {"count": 0}
+
+    def flaky(payout_id: str) -> Any:
+        polls["count"] += 1
+        if polls["count"] == 2:
+            raise BTCPayUnavailable("BTCPay went away mid-resolution", status_code=503)
+        return original(payout_id)
+
+    monkeypatch.setattr(fake_btcpay, "get_payout", flaky)
+
+    report = reconciliation.cancel_timed_out_payouts(session_factory, fake_btcpay, get_settings())
+
+    assert report.errors == 1
+    assert report.released == 0
+    withdrawal = withdrawal_service.get(session, withdrawal_id)
+    session.refresh(withdrawal)
+    assert withdrawal.release_entry_id is None
+    assert user_balance(session, "ln-midway", AccountKind.USER_HOLD) == 50_000
+
+
+# -- what the node says, when it says it badly -----------------------------
+
+
+def ln_backend(fake: FakeBTCPay) -> Any:
+    return asset_registry.profile_for(BTC_LN).automated_backend(  # type: ignore[misc]
+        asset_registry.RegistryContext(
+            settings=get_settings(),
+            asset=SimpleNamespace(id=BTC_LN, btcpay_payment_method="BTC-LN", decimals=8),
+            gateway=fake,
+        )
+    )
+
+
+def test_a_routing_fee_the_node_reports_as_text_is_not_booked(fake_btcpay: FakeBTCPay) -> None:
+    """Booking a guess here would move real satoshis out of hot_wallet. The
+    honest answer is "no fee reported", which books the estimate instead."""
+    destination = mint_bolt11(amount_sat=1_000)
+    payment_hash = decode_bolt11(destination, network="regtest").payment_hash
+    fake_btcpay.record_lightning_payment(payment_hash, total_msat=1_000_000)
+    fake_btcpay.lightning_payments[payment_hash]["feeAmount"] = "about three"
+
+    payout = BackendPayout(
+        id="payout-1",
+        state=BackendPayoutState.COMPLETED,
+        destination=destination,
+        amount="0.00001000",
+    )
+    assert ln_backend(fake_btcpay).actual_wallet_fee(payout) is None
+
+
+def test_a_destination_that_is_not_an_invoice_proves_nothing(fake_btcpay: FakeBTCPay) -> None:
+    """`definitive_failure_proof` reads the expiry out of the BOLT11. An
+    on-chain address on a Lightning payout is not a dead invoice, it is a row
+    nobody can reason about — so it gets no automatic release."""
+    payout = BackendPayout(
+        id="payout-2",
+        state=BackendPayoutState.IN_FLIGHT,
+        destination="bcrt1qdcaqy5dph55w0nyfg2zdu7nkrmzwpkwsej29yq",
+        amount="0.00001000",
+    )
+    assert ln_backend(fake_btcpay).definitive_failure_proof(payout) is None

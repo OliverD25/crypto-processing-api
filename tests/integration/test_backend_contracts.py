@@ -15,12 +15,13 @@ import uuid
 from collections.abc import Callable
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from crypto_processing_api.config import get_settings
 from crypto_processing_api.gateway.btcpay_client import BTCPayUnavailable
 from crypto_processing_api.gateway.trongrid import TronGridError
 from crypto_processing_api.ledger.models import Withdrawal, WithdrawalStatus
+from crypto_processing_api.services import withdrawals as withdrawal_service
 from crypto_processing_api.services.asset_registry import (
     BACKEND_BTCPAY_LN,
     BtcpayWalletCustody,
@@ -39,12 +40,14 @@ from crypto_processing_api.services.backends import (
 from crypto_processing_api.testing.contracts import (
     AutomatedBackendContract,
     CustodySourceContract,
+    EndToEndLedgerContract,
     FeePolicyContract,
     OperatorBackendContract,
 )
+from crypto_processing_api.workers import payout_submitter, reconciliation
 from tests.fake_tron import HOT_WALLET, USDT_CONTRACT, FakeTronGrid
 from tests.fakes import FakeBTCPay, mint_bolt11, regtest_address
-from tests.integration.conftest import BTC, BTC_LN, USDT
+from tests.integration.conftest import BTC, BTC_LN, USDT, credit_user
 
 DEST = regtest_address("contract-destination")
 TRON_DEST = "TN3W4H6rK2ce4vX9YnFQHwKENnHjoxb3m9"
@@ -268,3 +271,50 @@ class TestTronGridCustodyContract(CustodySourceContract):
         tron = FakeTronGrid()
         tron.fail_next["get_trc20_balance"] = TronGridError("rate limited")
         return TronGridCustody(tron, HOT_WALLET, USDT_CONTRACT)
+
+
+# -- the money test --------------------------------------------------------
+
+
+class TestBtcWithdrawalLedgerContract(EndToEndLedgerContract):
+    """The published end-to-end contract, run against the shipped BTC path.
+
+    It was the one contract in `testing/contracts.py` with no subclass, which
+    made it a wish list rather than evidence — the same objection this file
+    opens with. A fork adding an asset copies this class and swaps the body of
+    `run_withdrawal`.
+    """
+
+    @pytest.fixture
+    def run_withdrawal(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        fake_btcpay: FakeBTCPay,
+    ) -> Callable[[], Session]:
+        def run() -> Session:
+            credit_user(session, user="contract-money", amount=1_000_000)
+            outcome = withdrawal_service.place_hold(
+                session,
+                external_user_id="contract-money",
+                asset_id=BTC,
+                amount_gross=100_000,
+                destination_address=DEST,
+            )
+            session.commit()
+
+            payout_submitter.submit_approved(session_factory, fake_btcpay, get_settings())
+            session.expire_all()
+            payout_id = withdrawal_service.get(session, outcome.withdrawal.id).backend_ref
+            assert payout_id
+            fake_btcpay.complete_payout(payout_id)
+            reconciliation.sweep_withdrawals(session_factory, fake_btcpay, get_settings())
+
+            session.rollback()
+            assert (
+                withdrawal_service.get(session, outcome.withdrawal.id).status
+                is WithdrawalStatus.CONFIRMED
+            )
+            return session
+
+        return run
