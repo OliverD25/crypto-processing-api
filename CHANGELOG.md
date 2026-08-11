@@ -4,7 +4,28 @@ Notable changes to this project. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-11
+
+### Breaking / Migration
+
+Nothing on the wire breaks. Every v0.1.1 response is byte-identical under
+v0.2.0 — `tests/integration/test_wire_bytes.py` compares the raw bytes — with
+one value-level exception: `/healthz` and the OpenAPI document now report
+version `0.2.0`.
+
+Upgrading a v0.1.x deployment:
+
+1. Pull the v0.2.0 image.
+2. Run `alembic upgrade head` and restart. One new migration, `0006`, is
+   additive: new columns on `assets` with server defaults that reproduce
+   v0.1.x behaviour exactly. CI upgrades a frozen, seeded v0.1.1 database on
+   every build, so this exact path is tested permanently, not once.
+
+One startup behaviour changed deliberately: an asset that payment-method
+discovery disabled is re-enabled at the next startup if the store serves a
+matching payment method again. Turning an asset off on purpose is done by
+disabling its payment method in BTCPay; the sync honours that in both
+directions.
 
 ### Added
 
@@ -124,6 +145,14 @@ Notable changes to this project. The format follows
   including a comparison against raw BTCPay, a hosted processor and building it
   yourself. The honest row is custody: this project does not remove custody
   risk, it gives you the controls and the books.
+- **The Nile override runs the stack's BTC side on a peerless testnet.** The
+  USDt plugin cannot load on a regtest BTCPay — it maps the Bitcoin chain to a
+  TRON network before reading any setting and crashes on regtest — so the
+  verification stack now boots bitcoind on testnet with zero peers, frozen at
+  the genesis block plus one CPU-mined minimum-difficulty block that ends
+  initial block download. Every compose command in the runbook gained
+  `--env-file .env`, because compose only auto-loads a `.env` sitting next to
+  the first compose file, never the repository root's.
 
 ### Fixed
 
@@ -136,6 +165,14 @@ Notable changes to this project. The format follows
 - **The payout workers built their backend instead of asking the registry.**
   Harmless while every automated asset was one class, and wrong the moment one
   was not.
+- **An asset disabled by payment-method discovery stayed disabled forever.**
+  The startup sync skipped disabled rows, so the safety-disable at first boot
+  was a one-way door: configure the USDt plugin any time after the service
+  first started and the asset stayed off through every restart, with no
+  endpoint to turn it back on. Found live in the Nile session, minutes after
+  the runbook's promise that discovery re-enables the asset turned out to be
+  false. The sync now follows the store in both directions; rows without a
+  registry profile are never touched either way.
 
 ### Operators
 
@@ -267,5 +304,6 @@ USDT-TRC20 on top of BTCPay Server.
 - Single-tenant. One platform, one store.
 - No external audit.
 
+[0.2.0]: https://github.com/OliverD25/crypto-processing-api/releases/tag/v0.2.0
 [0.1.1]: https://github.com/OliverD25/crypto-processing-api/releases/tag/v0.1.1
 [0.1.0]: https://github.com/OliverD25/crypto-processing-api/releases/tag/v0.1.0

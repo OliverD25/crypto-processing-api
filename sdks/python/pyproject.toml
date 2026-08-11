@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "crypto-processing-client"
 # One version number covers the server, the image and both SDKs; see
 # docs/reference/versioning.md. `client 0.N.x` supports `server 0.N.y`.
-version = "0.2.0.dev0"
+version = "0.2.0"
 description = "Python client for crypto-processing-api: deposits, withdrawals, balances and signed webhooks"
 readme = "README.md"
 license = { text = "MIT" }

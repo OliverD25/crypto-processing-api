@@ -1,6 +1,6 @@
 {
   "name": "@oliverd25/crypto-processing-client",
-  "version": "0.2.0-dev.0",
+  "version": "0.2.0",
   "description": "TypeScript client for crypto-processing-api: deposits, withdrawals, balances and signed webhooks",
   "license": "MIT",
   "type": "module",
