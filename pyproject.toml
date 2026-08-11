@@ -52,10 +52,19 @@ packages = ["src/crypto_processing_api"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = [".", "src"]
+# `sdks/python` is here so the SDK's own package sorts as first-party in its
+# tests, the same way `src` does for this one.
+src = [".", "src", "sdks/python"]
 # The design documents are a historical record of what was decided and why.
 # Reformatting their code sketches would rewrite the record.
-extend-exclude = ["docs"]
+extend-exclude = [
+    "docs",
+    # Generated code, and the style is the generator's business. Linting it
+    # would mean either hand-fixing output that the next regeneration
+    # overwrites, or loosening rules that the handwritten code should keep.
+    "sdks/python/crypto_processing_client/_generated",
+    "sdks/python/crypto_processing_client/event_types.py",
+]
 
 [tool.ruff.lint]
 select = [
@@ -86,6 +95,8 @@ extend-immutable-calls = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B008", "S105", "S106", "S107", "S311"]
+# The SDK's tests carry the same obviously-fake keys and secrets as this one's.
+"sdks/python/tests/**" = ["S105", "S106", "S107"]
 # S608: the dev smoke test builds throwaway psql queries from values it
 # generated itself, against a regtest database it also created.
 "scripts/dev/**" = ["S105", "S106", "S608"]

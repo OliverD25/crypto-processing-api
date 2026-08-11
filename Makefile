@@ -54,6 +54,23 @@ test: test-unit test-int ## Full test suite
 contracts: ## Regenerate the committed OpenAPI, webhook and signature contracts
 	$(BIN)/python scripts/export_openapi.py
 	$(BIN)/python scripts/export_signature_vectors.py
+	$(BIN)/python scripts/generate_event_types.py
+
+.PHONY: sdk-python
+sdk-python: ## Regenerate the Python SDK core from the committed spec
+	openapi-python-client generate \
+	  --path docs/reference/openapi.json \
+	  --meta none \
+	  --config sdks/python/openapi-python-client.yaml \
+	  --output-path sdks/python/crypto_processing_client/_generated \
+	  --overwrite
+
+.PHONY: sdk-ts
+sdk-ts: ## Regenerate the TypeScript SDK core from the committed spec
+	cd sdks/typescript && npm ci && npm run generate
+
+.PHONY: sdks
+sdks: contracts sdk-python sdk-ts ## Regenerate every generated file both SDKs contain
 
 .PHONY: cov
 cov: ## Ledger coverage gate (the CI floor)

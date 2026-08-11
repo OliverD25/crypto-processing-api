@@ -62,7 +62,20 @@ class DepositUnavailableDetail(BaseModel):
 
 
 class DepositUnavailableResponse(BaseModel):
-    detail: DepositUnavailableDetail
+    """Deposit creation answers 503 with two different shapes.
+
+    Pool exhaustion carries the structured detail above. An unreachable BTCPay
+    (`deposits.py`, the ambiguous `BTCPayError` branch) carries a plain string,
+    because there is nothing machine-readable to say about it. Both are
+    retryable with the same key.
+
+    The union is here because a generated client parses this schema literally:
+    typed as the structured detail alone, every SDK crashes on the string
+    branch — which is the branch that fires when BTCPay is down, i.e. exactly
+    when the platform most needs a usable error.
+    """
+
+    detail: DepositUnavailableDetail | str
 
 
 # ---------------------------------------------------------------------------

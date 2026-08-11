@@ -1,0 +1,17 @@
+# The toolchain that produces crypto_processing_client/_generated.
+#
+# Pinned exactly, and installed into an environment of its own rather than
+# beside the service's dev dependencies. Both pins are load-bearing:
+#
+#   openapi-python-client  writes the client. A different version writes
+#                          different code, and the drift gate would then fail
+#                          on a runner that happens to have resolved a newer
+#                          one — a red build with no cause in the diff.
+#   ruff                   runs as the generator's post-hook, with --isolated
+#                          so no config file on either machine can change the
+#                          result. Same version, same bytes, everywhere.
+#
+# Install:  python -m pip install -r sdks/python/requirements-generate.txt
+# Generate: make sdk-python   (or see sdks/README.md for the raw command)
+openapi-python-client==0.29.0
+ruff==0.16.2

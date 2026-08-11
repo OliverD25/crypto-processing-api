@@ -1,0 +1,28 @@
+# How the generated core is produced. Read alongside sdks/README.md.
+#
+# The output goes to crypto_processing_client/_generated and is never edited by
+# hand: CI regenerates it and fails on any diff, so a hand-fix would be undone
+# by the next run and the SDK would silently disagree with the server again.
+
+# `--meta none` writes the package directory only, because the packaging
+# metadata is ours (sdks/python/pyproject.toml) and the SDK version tracks the
+# server release rather than the generator.
+package_name_override: _generated
+project_name_override: crypto-processing-client
+
+# Pinned to the server release this client supports. See
+# docs/reference/versioning.md: client 0.N.x supports server 0.N.y.
+package_version_override: "0.2.0.dev0"
+
+# `--isolated` on purpose. Without it these hooks pick up whichever ruff config
+# is nearest, which is not the same file on a laptop and on a runner, and the
+# drift gate then fails for a reason that has nothing to do with the API. With
+# it, the pinned ruff in requirements-generate.txt is the only input.
+post_hooks:
+  - "ruff check . --fix --isolated --select F401,I --line-length 100"
+  - "ruff format . --isolated --line-length 100"
+
+# Enums become Literal types rather than generated Enum classes. The API's
+# closed sets (a deposit status, an event type) are strings on the wire, and a
+# Literal is what a caller can compare against without importing anything.
+literal_enums: true

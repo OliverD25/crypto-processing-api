@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-processing-client"
+# One version number covers the server, the image and both SDKs; see
+# docs/reference/versioning.md. `client 0.N.x` supports `server 0.N.y`.
+version = "0.2.0.dev0"
+description = "Python client for crypto-processing-api: deposits, withdrawals, balances and signed webhooks"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "crypto-processing-api contributors" }]
+keywords = ["bitcoin", "btcpay", "custodial", "ledger", "usdt", "sdk"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+
+# Lower bounds only. This is a library: pinning exact versions here would make
+# it uninstallable next to anything else that uses httpx.
+dependencies = [
+    "httpx>=0.27,<1",
+    "attrs>=24.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.2",
+    "mypy==2.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/OliverD25/crypto-processing-api"
+Source = "https://github.com/OliverD25/crypto-processing-api/tree/main/sdks/python"
+Documentation = "https://github.com/OliverD25/crypto-processing-api/blob/main/docs/integrating.md"
+Issues = "https://github.com/OliverD25/crypto-processing-api/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["crypto_processing_client"]
+
+[tool.hatch.build.targets.sdist]
+include = ["crypto_processing_client", "tests", "README.md", "openapi-python-client.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+# The generated core is checked under the same --strict as everything else. It
+# passes, so there is no exemption here and adding one later would be a signal
+# that the generator started emitting something worse.
+files = ["crypto_processing_client", "tests"]
