@@ -51,9 +51,10 @@ test-int: ## Integration tests against the dockerized test Postgres
 test: test-unit test-int ## Full test suite
 
 .PHONY: contracts
-contracts: ## Regenerate the committed OpenAPI, webhook and signature contracts
+contracts: ## Regenerate the committed OpenAPI, webhook, signature and config references
 	$(BIN)/python scripts/export_openapi.py
 	$(BIN)/python scripts/export_signature_vectors.py
+	$(BIN)/python scripts/export_config_reference.py
 	$(BIN)/python scripts/generate_event_types.py
 
 .PHONY: sdk-python

@@ -168,6 +168,11 @@ jobs:
       # exactly like the other two.
       - name: The committed signature vectors must be what the signer produces
         run: python scripts/export_signature_vectors.py --check
+      # The configuration reference is the fourth: every field of `Settings`,
+      # rendered. `.env.example` is hand-maintained prose and had already
+      # drifted ten variables behind the model before this gate existed.
+      - name: The committed configuration reference must be what Settings produces
+        run: python scripts/export_config_reference.py --check
       # Belt and braces: --check compares content, this catches anything that
       # rewrites the files without changing what the script would write (a line
       # ending, an editor's trailing newline).
@@ -175,6 +180,7 @@ jobs:
         run: |
           python scripts/export_openapi.py
           python scripts/export_signature_vectors.py
+          python scripts/export_config_reference.py
           git diff --exit-code -- docs/reference sdks/signature-vectors.json
 
   semgrep:
