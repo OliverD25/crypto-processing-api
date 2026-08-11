@@ -1,5 +1,8 @@
 # @oliverd25/crypto-processing-client
 
+<!-- The lines below are included verbatim into the docs site's "Client libraries" page. Keep the markers. -->
+<!-- --8<-- [start:body] -->
+
 TypeScript client for
 [crypto-processing-api](https://github.com/OliverD25/crypto-processing-api) —
 per-user custodial BTC and USDT balances on top of your own BTCPay Server.
@@ -155,3 +158,4 @@ things codegen cannot produce.
 The package has no runtime dependencies.
 
 MIT licensed, like the service.
+<!-- --8<-- [end:body] -->

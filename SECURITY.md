@@ -27,7 +27,7 @@ In scope, and taken seriously:
 - injection, or a way to make the service act on unverified external input
 
 Out of scope, and already documented as accepted residual risk in
-[`docs/security.md`](docs/security.md):
+[`docs/operating/security.md`](docs/operating/security.md):
 
 - compromise of the BTCPay host itself. The mitigation is a small hot wallet
   float; that is stated in the README on purpose.

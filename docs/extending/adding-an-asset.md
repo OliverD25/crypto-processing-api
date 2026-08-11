@@ -259,7 +259,7 @@ balances must not disappear because an environment variable did.
 ### b. A migration, only if you need new columns
 
 Most assets need none. If yours does, read the migration rules in
-[`CONTRIBUTING.md`](../CONTRIBUTING.md): the downgrade must undo the upgrade
+[`CONTRIBUTING.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/CONTRIBUTING.md): the downgrade must undo the upgrade
 exactly, `alembic check` must agree the models match, and the frozen dumps in
 `tests/fixtures/upgrade/` must still upgrade cleanly.
 

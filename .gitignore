@@ -39,3 +39,6 @@ Thumbs.db
 # Node / TypeScript SDK
 node_modules/
 sdks/typescript/dist/
+
+# The built docs site. Rebuilt by `mkdocs build`; published by docs.yml.
+site/

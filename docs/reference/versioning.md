@@ -25,7 +25,7 @@ delivered under that constraint, it is not a patch, however small the diff.
 **A minor may change behaviour, and must say so where you will read it.**
 
 Every minor with a behaviour change carries a **Breaking / Migration** section
-in [`CHANGELOG.md`](../../CHANGELOG.md), naming what changed, what an operator
+in [`CHANGELOG.md`](changelog.md), naming what changed, what an operator
 has to do, and in what order. The release workflow extracts the changelog
 section for the tag, so a release with no section is a release with no notes —
 which is the pressure that keeps the section honest.
@@ -74,7 +74,7 @@ release before it is removed.** Marked means all three of:
 
 1. `deprecated: true` in the OpenAPI document, which is committed at
    [`openapi.json`](openapi.json) and therefore visible in a diff.
-2. A note in [`api.md`](../api.md) saying what to use instead.
+2. A note in [`api.md`](api.md) saying what to use instead.
 3. A line in the changelog for the release that marks it.
 
 Removal is a minor release with a Breaking / Migration section. A field is
@@ -92,7 +92,7 @@ as something to skip rather than an error.
   fingerprint, `downgrade base`, upgrade again, demand the same fingerprint —
   but that test exists to prove a migration is reversible in development, not
   to make downgrading a supported production recovery. Production recovery is
-  restore-from-backup; see [`backups.md`](../backups.md).
+  restore-from-backup; see [`backups.md`](../operating/backups.md).
 - **Every release is upgradeable from the previous release.** Not "from
   anywhere": from the release before it, in order. Skipping releases means
   applying them in sequence, which `alembic upgrade head` does for you.

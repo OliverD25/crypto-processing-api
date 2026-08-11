@@ -2,17 +2,17 @@
 
 Complete endpoint list. For how to *use* these together — the deposit
 lifecycle, retry semantics, what to show a user — read
-[`integrating.md`](integrating.md) first; this is the lookup table.
+[`integrating.md`](../integrating/index.md) first; this is the lookup table.
 
 The live OpenAPI schema is at `/openapi.json` and Swagger UI at `/docs`. The
 same document is committed at
-[`reference/openapi.json`](reference/openapi.json) so it can be read, diffed
+[`reference/openapi.json`](openapi.json) so it can be read, diffed
 and generated from without a running server — CI regenerates it and fails on
 any difference, so a route change cannot land with a stale spec. The eight
 outbound webhook payloads have their own schema at
-[`reference/webhook-events.json`](reference/webhook-events.json), behind the
+[`reference/webhook-events.json`](webhook-events.json), behind the
 same gate. What a release may change about any of it is in
-[`reference/versioning.md`](reference/versioning.md).
+[`reference/versioning.md`](versioning.md).
 
 ## Conventions
 
@@ -184,14 +184,14 @@ X-CPA-Signature: t=1760000000,v1=<hex hmac-sha256>
 | `withdrawal.completed` | confirmed |
 | `withdrawal.failed` | will not proceed — **the money is not back yet** |
 
-Every payload shape is in [`reference/webhook-events.json`](reference/webhook-events.json)
+Every payload shape is in [`reference/webhook-events.json`](webhook-events.json)
 as a JSON Schema discriminated on `type` — generate your parser from it rather
 than hand-writing one, because that file is generated from the models the
 server builds the payloads with and CI fails if the two drift apart.
 
 Retries at 1m, 5m, 30m, 2h, 6h then every 12h, ten attempts over roughly three
 days, then dead-lettered with an operator alert. Signature verification code is
-in [`integrating.md`](integrating.md#verifying-the-signature).
+in [`integrating.md`](../integrating/index.md#verifying-the-signature).
 
 **These are notifications, not truth.** Treat one as a hint to re-read the
 resource.

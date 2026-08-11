@@ -346,7 +346,7 @@ def test_job_c_raises_the_usdt_insolvency_alert(
 def test_the_remediation_sql_routes_stranded_rows_to_the_approval_queue(
     session: Session,
 ) -> None:
-    """Exactly the statement in docs/runbook-usdt-withdrawals.md.
+    """Exactly the statement in docs/operating/runbook-usdt-withdrawals.md.
 
     A row stranded by the old bug sits in `approved` (or `submitting`) with a
     manual backend and no `backend_ref`.

@@ -4,7 +4,7 @@ For developers of the platform backend that calls this service. It assumes
 nothing about your stack beyond HTTP and JSON.
 
 > **Status: v0.1.0.** Deposits, withdrawals and outbound webhooks work for BTC
-> and USDT-TRC20. Every endpoint is listed in [`api.md`](api.md).
+> and USDT-TRC20. Every endpoint is listed in [`api.md`](../reference/api.md).
 
 ## Start here if you are on Python or Node
 
@@ -81,9 +81,9 @@ not a different one. If you are on another stack, read on; there is nothing
 here you cannot do with an HTTP library.
 
 The request layer of both clients is generated from
-[`reference/openapi.json`](reference/openapi.json), which CI regenerates and
+[`reference/openapi.json`](../reference/openapi.json), which CI regenerates and
 compares on every change, so a client cannot describe a server that does not
-exist. See [`../sdks/README.md`](../sdks/README.md).
+exist. See [`../sdks/README.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/sdks/README.md).
 
 ## The one rule
 
@@ -516,7 +516,7 @@ nothing changes — events queue up server-side and are never lost, so you can
 turn delivery on later and receive the backlog.
 
 Every payload shape is published as JSON Schema at
-[`reference/webhook-events.json`](reference/webhook-events.json), one
+[`reference/webhook-events.json`](../reference/webhook-events.json), one
 discriminated union over the eight `type` values. Generate your parser from it
 rather than writing one by hand: that file comes from the same models the
 server builds the payloads with, and CI fails if the two ever disagree.
@@ -543,7 +543,7 @@ request cannot be replayed tomorrow.
 
 **If you are on Python or Node, use the client and skip the rest of this
 section.** Both verify and parse in one call, and both are checked against
-[`../sdks/signature-vectors.json`](../sdks/signature-vectors.json) — the same
+[`../sdks/signature-vectors.json`](https://github.com/OliverD25/crypto-processing-api/blob/main/sdks/signature-vectors.json) — the same
 cases the server's own verifier is checked against, so they cannot quietly
 disagree with it.
 
@@ -669,7 +669,7 @@ It covers **BTC only**. The scan reads BTCPay's wallet transactions, and
 neither `USDT_TRC20` nor `BTC_LN` has a wallet API behind it, so nothing here
 will ever report one of theirs. For USDT that matters: a pooled address can be
 paid again next week, and
-[`runbook-usdt-attribution.md`](runbook-usdt-attribution.md) is how those are
+[`runbook-usdt-attribution.md`](../operating/runbook-usdt-attribution.md) is how those are
 found. For `BTC_LN` it matters much less, because a BOLT11 invoice belongs to
 one deposit and can be paid exactly once — but a keysend, or a payment to an
 invoice created outside this service, would still go unnoticed.

@@ -50,7 +50,7 @@ rules:
     languages: [python]
     severity: ERROR
     message: >-
-      SQL built by interpolation in the money path. docs/security.md calls SQL
+      SQL built by interpolation in the money path. docs/operating/security.md calls SQL
       injection "a review problem"; this makes it a build problem. A literal
       string with bound parameters is fine — an f-string, a concatenation or a
       .format() is not, whatever the value looks like today.

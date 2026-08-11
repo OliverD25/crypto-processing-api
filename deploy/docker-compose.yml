@@ -92,7 +92,7 @@ services:
       - archive_command=/bin/true
     volumes:
       # A host path, not a named volume: pgBackRest runs on the host and needs
-      # to see the data directory. See docs/backups.md.
+      # to see the data directory. See docs/operating/backups.md.
       - /var/lib/crypto-processing-api/pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cpapi -d cpapi"]

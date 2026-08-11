@@ -8,7 +8,7 @@ cannot write, and it is deliberately small:
   requires one and answers 400 without it, so minting a UUID by default is
   strictly better than making every caller remember. The key is minted once per
   logical call and **reused on every retry of that call**, which is the rule
-  `docs/integrating.md` puts in bold: a retry with a new key is a second
+  `docs/integrating/index.md` puts in bold: a retry with a new key is a second
   deposit, not a retry.
 - **Retries.** 503 always, and 409 only when the server sent a `Retry-After` —
   that is how the "your own request is still in flight" 409 is told apart from

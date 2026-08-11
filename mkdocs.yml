@@ -1,0 +1,130 @@
+# The docs site: https://oliverd25.github.io/crypto-processing-api/
+#
+# Deliberately boring. Material for MkDocs is in maintenance mode and reaches
+# end of life in November 2026, with Zensical as its successor — and Zensical
+# reads mkdocs.yml. So there is no theme override directory, no custom CSS
+# outside the one page that embeds Scalar, and no plugin beyond search. What
+# that buys is a migration that is a configuration change rather than a rebuild.
+#
+# Build it with the pinned versions:
+#
+#     pip install -r docs/requirements.txt
+#     mkdocs serve                  # localhost:8000, live reload
+#     mkdocs build --strict         # what CI runs; a broken link fails it
+
+site_name: crypto-processing-api
+site_description: >-
+  The accounting layer BTCPay Server does not have: per-user custodial BTC and
+  USDT balances over an append-only double-entry ledger.
+site_url: https://oliverd25.github.io/crypto-processing-api/
+site_author: crypto-processing-api contributors
+copyright: MIT licensed. Nothing here is financial or legal advice.
+
+repo_url: https://github.com/OliverD25/crypto-processing-api
+repo_name: OliverD25/crypto-processing-api
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+# The pin file lives in docs/ so the workflow can install it before anything
+# else exists; it is not a page and does not belong on the site.
+exclude_docs: |
+  requirements.txt
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  # How the changelog and both client READMEs appear on the site without being
+  # written twice. `check_paths` turns a missing include into a build failure
+  # rather than a silently empty page.
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: true
+
+# --strict promotes all of these to errors, which is the point: the whole
+# information architecture was moved once and nothing may 404 because of it.
+validation:
+  links:
+    absolute_links: relative_to_docs
+    anchors: warn
+    unrecognized_links: warn
+  nav:
+    omitted_files: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Quickstart: getting-started/quickstart.md
+      - The regtest walkthrough: getting-started/regtest.md
+  - Integrating:
+      - Overview: integrating/index.md
+      - Client libraries: integrating/sdks.md
+      - Example application: integrating/example-app.md
+  - Operating:
+      - Deploying: operating/deployment.md
+      - BTCPay Server setup: operating/btcpay-setup.md
+      - Security model: operating/security.md
+      - Backups and restore: operating/backups.md
+      - Nightly end-to-end tests: operating/nightly-e2e.md
+      - "Runbook: sending a USDT withdrawal": operating/runbook-usdt-withdrawals.md
+      - "Runbook: attributing a USDT deposit": operating/runbook-usdt-attribution.md
+      - "Runbook: a reorged deposit": operating/runbook-reorg.md
+      - "Runbook: moving value between the BTC floats": operating/runbook-ln-rebalance.md
+  - Extending:
+      - Adding your own asset: extending/adding-an-asset.md
+      - The conformance suite: extending/conformance.md
+  - Reference:
+      - API endpoints: reference/api.md
+      - OpenAPI explorer: reference/openapi.md
+      - Webhook events: reference/webhooks.md
+      - Configuration: reference/configuration.md
+      - Versioning and releases: reference/versioning.md
+      - Changelog: reference/changelog.md
+  - Design record:
+      - What this section is: design/index.md
+      - MVP implementation plan: design/00-implementation-plan.md
+      - BTCPay Server fact sheet: design/01-btcpay-fact-sheet.md
+      - Ledger and data model: design/02-ledger-design.md
+      - BTCPay integration layer: design/03-btcpay-integration-design.md
+      - Security and operations: design/04-security-ops-design.md
+      - Merged v0.1 plan: design/05-merged-plan.md
+      - Adversarial review of v0.1: design/06-adversarial-critique.md
+      - v0.2 asset-extension contract: design/07-extension-contract-design.md
+      - v0.2 robustness program: design/08-robustness-program-design.md
+      - v0.2 DX, SDKs and docs: design/09-dx-community-design.md
+      - v0.2 roadmap: design/10-v02-roadmap.md
+      - Adversarial review of v0.2: design/11-v02-adversarial-critique.md
+      - v0.2 implementation plan: design/12-v02-implementation-plan.md

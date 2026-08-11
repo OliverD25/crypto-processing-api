@@ -1,6 +1,6 @@
 # Security audit
 
-[`docs/security.md`](docs/security.md) states the threat model in prose. This
+[`docs/operating/security.md`](docs/operating/security.md) states the threat model in prose. This
 file is the audit trail underneath it: for every threat, which control actually
 implements it, which file that control lives in, and what evidence exists that
 it works today rather than on the day it was written.
@@ -28,7 +28,7 @@ the control was written.
 
 ## Threat control matrix
 
-Numbering follows the threat table in [`docs/security.md`](docs/security.md#threat-model).
+Numbering follows the threat table in [`docs/operating/security.md`](docs/operating/security.md#threat-model).
 
 ### 1. Webhook spoofing
 
@@ -68,7 +68,7 @@ holds under parallel requests.
 | **Implementing files** | [`.semgrep/money-invariants.yml`](.semgrep/money-invariants.yml) (`no-interpolated-sql-in-money-path`), [`core/addresses.py`](src/crypto_processing_api/core/addresses.py), the Pydantic schemas in `api/` |
 | **Evidence** | `semgrep` CI job, zero findings on the current tree; rogue-write demonstration below; `test_single_character_typo_in_base58_is_caught`, `test_single_character_typo_in_bech32_is_caught`, `test_garbage_is_rejected`, `test_malformed_keys_refused` |
 | **Last verified** | 2026-08-10 |
-| **Residual risk** | Low, and lower than it was. `docs/security.md` calls this "a review problem"; the rule downgrades it to a build problem. The rule permits `text()` with a literal string and bound parameters — the advisory locks in `workers/runner.py` — and rejects f-strings, concatenation and `.format()`. A parameterized literal that is later edited into an f-string fails CI. |
+| **Residual risk** | Low, and lower than it was. `docs/operating/security.md` calls this "a review problem"; the rule downgrades it to a build problem. The rule permits `text()` with a literal string and bound parameters — the advisory locks in `workers/runner.py` — and rejects f-strings, concatenation and `.format()`. A parameterized literal that is later edited into an f-string fails CI. |
 
 ### 4. Insider or host-level tampering
 
@@ -89,7 +89,7 @@ insider detectable at all.
 | | |
 |---|---|
 | **Control** | Cash management, not cryptography: a small hot-wallet float with manual cold sweeps. The Greenfield **runtime** key is scoped to one store and is never server-admin. Velocity caps bound abuse routed through our payout path, **per asset**, so an enabled Lightning float carries its own ceiling rather than sharing BTC's. Nothing is published to the internet |
-| **Implementing files** | [`docs/security.md`](docs/security.md#hot-wallet-float-policy) (float policy and sweep runbook), [`deploy/docker-compose.yml`](deploy/docker-compose.yml), [`scripts/bootstrap_btcpay.py`](scripts/bootstrap_btcpay.py) |
+| **Implementing files** | [`docs/operating/security.md`](docs/operating/security.md#hot-wallet-float-policy) (float policy and sweep runbook), [`deploy/docker-compose.yml`](deploy/docker-compose.yml), [`scripts/bootstrap_btcpay.py`](scripts/bootstrap_btcpay.py) |
 | **Evidence** | `test_a_store_that_cannot_take_btc_is_a_startup_failure`, `test_foreign_invoices_are_not_ours`, `test_another_stores_event_is_ignored`, `test_a_payout_that_is_not_ours_is_ignored`; the bootstrap script requests `btcpay.store.canmanagepayouts` and not server-admin. Scope minimality is now asserted rather than reviewed: [`tests/unit/test_bootstrap_scopes.py`](tests/unit/test_bootstrap_scopes.py) pins both scope lists to literal strings and fails on any `btcpay.server.*` entry with Lightning off |
 | **Last verified** | 2026-08-11 |
 | **Residual risk** | **Accepted and total within its blast radius.** If the box is owned, the hot wallet is gone, and so is any Lightning channel balance. There is no control here that changes that; the only lever is keeping both floats small. This is a procedural control, and it degrades the moment an operator stops sweeping — and channel balance cannot be swept at all until the channel is closed. |
@@ -135,7 +135,7 @@ that simulates a race proves nothing about `FOR UPDATE`.
 | **Implementing files** | [`deploy/ufw/`](deploy/ufw), [`deploy/nginx/`](deploy/nginx), [`core/auth.py`](src/crypto_processing_api/core/auth.py) |
 | **Evidence** | `test_generated_keys_do_not_repeat`, `test_verify_accepts_only_the_exact_key`, `test_unknown_key_is_rejected`, `test_error_responses_never_name_the_reason`. **The ufw rules themselves are deployment assets and are not covered by any automated test** |
 | **Last verified** | 2026-08-10 (application controls only) |
-| **Residual risk** | **Accepted, and partly unverified.** The bitcoind port reveals the origin IP. More importantly, the firewall control is a shell script nobody's CI runs — its correctness rests on the operator following [`docs/deployment.md`](docs/deployment.md). This is the weakest evidence row in the table. |
+| **Residual risk** | **Accepted, and partly unverified.** The bitcoind port reveals the origin IP. More importantly, the firewall control is a shell script nobody's CI runs — its correctness rests on the operator following [`docs/operating/deployment.md`](docs/operating/deployment.md). This is the weakest evidence row in the table. |
 
 ### 9. Supply chain
 
@@ -152,7 +152,7 @@ that simulates a race proves nothing about `FOR UPDATE`.
 | | |
 |---|---|
 | **Control** | Settlement pinned at 1 confirmation minimum, never 0-conf; the `user_deficit` account kind exists so a post-credit loss can be **booked** rather than rejected by the overdraft CHECK |
-| **Implementing files** | [`services/deposits.py`](src/crypto_processing_api/services/deposits.py), [`ledger/models.py`](src/crypto_processing_api/ledger/models.py), [`docs/runbook-reorg.md`](docs/runbook-reorg.md) |
+| **Implementing files** | [`services/deposits.py`](src/crypto_processing_api/services/deposits.py), [`ledger/models.py`](src/crypto_processing_api/ledger/models.py), [`docs/operating/runbook-reorg.md`](docs/operating/runbook-reorg.md) |
 | **Evidence** | `test_reorg_loss_on_an_already_spent_balance_is_bookable`, `test_user_deficit_may_hold_a_credit_balance`, `test_a_reorg_that_removes_the_transaction_does_not_confirm_it`, `test_confirmations_are_counted_from_the_block_height`, `test_confirmations_never_go_negative` |
 | **Last verified** | 2026-08-10 |
 | **Residual risk** | A deep reorg still costs real money. The control does not prevent the loss — it makes the loss recordable, so the books stay correct and recovery is possible. Those are different things and the difference should not be blurred. |
@@ -296,7 +296,7 @@ this repository is public. Attaching a self-hosted runner to a public repository
 is one of the easiest ways to lose a machine, so this section records exactly
 what stops that and what is still open.
 
-[`docs/nightly-e2e.md`](docs/nightly-e2e.md) is the reusable, machine-agnostic
+[`docs/operating/nightly-e2e.md`](docs/operating/nightly-e2e.md) is the reusable, machine-agnostic
 version of the same design.
 
 **Last verified: 2026-08-11**, by dispatching the nightly and reading the run.

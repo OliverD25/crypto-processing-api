@@ -338,7 +338,7 @@ class BTCPayClient:
     #
     # These two take a crypto code ("BTC"), not a payment method id ("BTC-LN").
     # Both need `btcpay.store.canuselightningnode`, which a deployment only
-    # grants when it has turned Lightning on — see docs/security.md.
+    # grants when it has turned Lightning on — see docs/operating/security.md.
 
     def get_lightning_balance(self, crypto_code: str) -> LightningBalance:
         payload = self._get(f"/api/v1/stores/{self.store_id}/lightning/{crypto_code}/balance")

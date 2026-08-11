@@ -342,5 +342,5 @@ model is the part worth copying:
 8. Runner registrations are just-in-time and single-use.
 9. A watchdog on a *different* machine notices silence.
 
-See [`SECURITY-AUDIT.md`](../SECURITY-AUDIT.md) for which of these are live in
+See [`SECURITY-AUDIT.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/SECURITY-AUDIT.md) for which of these are live in
 this project today, and which are documented gaps.

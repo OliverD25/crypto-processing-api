@@ -380,7 +380,7 @@ class WebhookAckResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 #: What each status code means here, written once so the spec says the same
-#: thing on every route that can return it. `docs/api.md` carries the same
+#: thing on every route that can return it. `docs/reference/api.md` carries the same
 #: table for humans.
 ERROR_DESCRIPTIONS: dict[int, str] = {
     400: "The `Idempotency-Key` header is missing or malformed.",

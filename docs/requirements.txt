@@ -1,0 +1,17 @@
+# Everything the docs site is built with, pinned exactly.
+#
+# Not in pyproject.toml's [dev] extra on purpose: building the site is not part
+# of developing the service, and nobody running the test suite should have to
+# resolve a documentation toolchain. The docs workflow installs this file and
+# nothing else.
+#
+# Material for MkDocs reaches end of life on 2026-11-05, with Zensical as its
+# successor. Pinning it means the site keeps building the same way afterwards —
+# a static site does not stop working when its generator stops shipping — and
+# leaves the migration as a decision rather than an emergency. Re-evaluate at
+# v0.3.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+# Used directly: pymdownx.snippets is how the changelog and the two client
+# READMEs appear on the site without being copied into docs/.
+pymdown-extensions==11.0.1

@@ -435,7 +435,7 @@ def _lightning_profile() -> AssetProfile:
     and a user's Lightning balance cannot pay an on-chain withdrawal or the
     reverse. It also means zero ledger changes: everything here is data plus
     this entry. Moving value between the two floats is an operator action, in
-    docs/runbook-ln-rebalance.md.
+    docs/operating/runbook-ln-rebalance.md.
 
     `has_btcpay_wallet=False` because there is no wallet API behind `BTC-LN`,
     so the unattributed-receive scan cannot run for it. That detector gap is
@@ -579,7 +579,7 @@ def get_profile(registry: dict[str, AssetProfile], asset_id: str) -> AssetProfil
     if profile is None:
         raise UnknownAsset(
             f"asset {asset_id!r} has no registry entry, so this build does not know how to "
-            "validate a destination, price a fee, or send it. See docs/extending.md"
+            "validate a destination, price a fee, or send it. See docs/extending/adding-an-asset.md"
         )
     return profile
 

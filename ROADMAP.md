@@ -27,7 +27,7 @@ not when it is started.
   `post_entry` and the withdrawal posting matrix against real PostgreSQL, with
   a small derandomized profile on pull requests and a wide random one nightly.
 - [x] **[`SECURITY-AUDIT.md`](SECURITY-AUDIT.md)** — every threat in
-  `docs/security.md` mapped to the control, the file, and the test.
+  `docs/operating/security.md` mapped to the control, the file, and the test.
 
 ### The extension contract, proved by adding an asset
 
@@ -38,7 +38,7 @@ not when it is started.
 - [x] **A conformance suite inside the package** —
   `crypto_processing_api/testing/contracts.py`. A backend that passes it is
   wired correctly; that is the acceptance test, not a code review.
-- [x] **[`docs/extending.md`](docs/extending.md)** — the four pluggable facets,
+- [x] **[`docs/extending/adding-an-asset.md`](docs/extending/adding-an-asset.md)** — the four pluggable facets,
   what is deliberately welded shut, and the worked example.
 - [x] **Lightning (`BTC_LN`) added through the contract without changing it**,
   after a time-boxed feasibility spike. Off by default. Fee-drift journalling
@@ -65,7 +65,7 @@ not when it is started.
 - [ ] **Nightly end-to-end on a self-hosted runner** — the full regtest stack,
   every drill, and the wide property profile, once a night on hardware
   somebody owns. Design and isolation model are written up in
-  [`docs/nightly-e2e.md`](docs/nightly-e2e.md); the runner install is not done.
+  [`docs/operating/nightly-e2e.md`](docs/operating/nightly-e2e.md); the runner install is not done.
 - [x] **SDKs** — `crypto-processing-client` on PyPI and npm. Generated core
   from the committed spec, plus a small handwritten layer for the two things
   codegen cannot do: webhook signature verification over raw bytes, and
@@ -110,7 +110,7 @@ Saying no in writing is cheaper for everyone than saying it in ten issues.
   separate floats and separate balances. Merging them needs a rebalancing
   entry kind and a policy for which rail pays — real work, wanted, and not
   something to fake with a display trick that lies about what is spendable.
-  See [`docs/runbook-ln-rebalance.md`](docs/runbook-ln-rebalance.md) for what
+  See [`docs/operating/runbook-ln-rebalance.md`](docs/operating/runbook-ln-rebalance.md) for what
   moving value between them means today.
 - **Assets with more than 8 decimals.** `assets.decimals` is capped at 8 and
   amounts are `BIGINT`. An 18-decimal token needs a real conversation about

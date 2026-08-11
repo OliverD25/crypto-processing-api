@@ -7,7 +7,7 @@ that matter most, and the reason each is what it is:
 - **404 vs 409** — "there is no such row" is a client bug; "the row is in the
   wrong state" is a race someone may legitimately retry.
 - **422 vs 503** — "we will never accept this" against "ask again".
-- **400 for a missing Idempotency-Key**, never 422, because `docs/api.md` says
+- **400 for a missing Idempotency-Key**, never 422, because `docs/reference/api.md` says
   400 and every caller branching on it would break.
 
 The admin surface gets the most attention here: it is the surface an operator
@@ -162,7 +162,7 @@ def test_reading_a_withdrawal_that_does_not_exist_is_404(
 
 
 def test_a_missing_idempotency_key_is_400_not_422(client: TestClient, readwrite_key: str) -> None:
-    """422 would come from FastAPI's own validation. docs/api.md promises 400,
+    """422 would come from FastAPI's own validation. docs/reference/api.md promises 400,
     and every caller that branches on the code would break."""
     response = client.post(
         "/v1/deposits", json={"external_user_id": "u1", "asset": BTC}, headers=bearer(readwrite_key)

@@ -10,7 +10,7 @@ seven-dollar-a-month box; it does not have an HSM, a security team, or
 twenty-four-hour monitoring, and pretending otherwise would be the most
 dangerous thing in this document.
 
-> **This file states the claims. [`SECURITY-AUDIT.md`](../SECURITY-AUDIT.md) is
+> **This file states the claims. [`SECURITY-AUDIT.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/SECURITY-AUDIT.md) is
 > the evidence** — for every threat below, the file that implements the control,
 > the tests that prove it, when that was last true, and what is left unmitigated.
 > If you are auditing rather than reading, start there.
@@ -131,7 +131,7 @@ service should not run.
 
 ## Reporting a vulnerability
 
-See [`SECURITY.md`](../SECURITY.md). Please do not open a public issue.
+See [`SECURITY.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/SECURITY.md). Please do not open a public issue.
 
 ## What this service is not
 

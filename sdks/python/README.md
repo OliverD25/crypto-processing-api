@@ -1,5 +1,8 @@
 # crypto-processing-client
 
+<!-- The lines below are included verbatim into the docs site's "Client libraries" page. Keep the markers. -->
+<!-- --8<-- [start:body] -->
+
 Python client for
 [crypto-processing-api](https://github.com/OliverD25/crypto-processing-api) —
 per-user custodial BTC and USDT balances on top of your own BTCPay Server.
@@ -135,3 +138,4 @@ package is handwritten: the idempotency and retry behaviour, the error classes,
 and webhook verification. Those are the things codegen cannot produce.
 
 MIT licensed, like the service.
+<!-- --8<-- [end:body] -->

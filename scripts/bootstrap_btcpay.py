@@ -47,7 +47,7 @@ def lightning_enabled() -> bool:
     Enabling BTC-LN through the API needs a **server-level** BTCPay permission.
     Every other scope this script requests is pinned to one store, and that is
     a property worth keeping by default rather than by intention. See
-    docs/security.md, threat 5.
+    docs/operating/security.md, threat 5.
     """
     return os.environ.get("LIGHTNING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
@@ -126,7 +126,7 @@ def bootstrap_scopes(store_id: str) -> list[str]:
         # What it grants: use of the server's internal Lightning node. On a
         # single-tenant box that is the same node this store would use anyway.
         # On a shared BTCPay it is broader than this project's usual rule of
-        # "every scope pinned to one store", and docs/security.md says so.
+        # "every scope pinned to one store", and docs/operating/security.md says so.
         scopes.append("btcpay.server.canuseinternallightningnode")
         scopes.append(f"btcpay.store.canuselightningnode:{store_id}")
     return scopes
@@ -614,7 +614,7 @@ def main() -> int:
     write_env_file(config.output_path, values)
     log(f"wrote {config.output_path}")
     if lightning_enabled():
-        log("lightning is on: the key holds one server-level scope, see docs/security.md")
+        log("lightning is on: the key holds one server-level scope, see docs/operating/security.md")
     log("store_id and webhook are ready; deposits are M2")
     return 0
 

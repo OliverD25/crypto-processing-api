@@ -1062,7 +1062,7 @@ def stuck_submitting(
     rows this protects are legacy ones from a v0.1.0 deployment, and for those
     `submitting` is the better resting place: it is visibly wrong, so it gets
     the operator's attention and the remediation in
-    `docs/runbook-usdt-withdrawals.md`.
+    `docs/operating/runbook-usdt-withdrawals.md`.
     """
     cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
     rows = session.execute(

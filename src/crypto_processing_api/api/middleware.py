@@ -78,7 +78,7 @@ IDEMPOTENCY_HEADER = "Idempotency-Key"
 #: The spec marks this parameter optional and the endpoint then refuses without
 #: it, which looks inconsistent and is deliberate: declaring it required would
 #: hand the failure to FastAPI's own request validation, which answers 422. A
-#: missing idempotency key has always answered 400, `docs/api.md` says so, and
+#: missing idempotency key has always answered 400, `docs/reference/api.md` says so, and
 #: changing it would break every caller that branches on the code. The
 #: description carries the requirement instead.
 IDEMPOTENCY_HEADER_DESCRIPTION = (
