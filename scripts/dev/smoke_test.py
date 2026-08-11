@@ -343,6 +343,60 @@ def destination_received(address: str) -> Decimal:
     return Decimal(str(total))
 
 
+def btcpay_client(generated: dict[str, str]) -> httpx.Client:
+    return httpx.Client(
+        base_url=generated["BTCPAY_PUBLIC_URL"],
+        headers={"Authorization": f"token {generated['BTCPAY_API_KEY']}"},
+        timeout=30.0,
+    )
+
+
+def wait_for_settled_payment(
+    generated: dict[str, str], deposit_id: str, payment_id: str, *, timeout: float = 180
+) -> None:
+    """Block until BTCPay calls this payment `Settled`.
+
+    A deposit reaches `review` as soon as a payment is *recorded*, and a
+    payment is recorded in any status but `Invalid` — so the review queue shows
+    a late payment while it is still `Processing`. Resolving one in that state
+    is refused with a 404 saying so, correctly: `Processing` can still become
+    `Invalid`, and crediting it would mint a balance for money that never
+    arrived.
+
+    So the wait belongs here, before the resolve, not as a retry around it.
+    Without it this drill passed on a fast machine and failed on a slower one,
+    which is the worst kind of green.
+
+    The invoice id is deliberately absent from the public deposit response, so
+    it comes from the row — the same choice `capture_greenfield.py` makes,
+    rather than widening the API for a dev script.
+    """
+    invoice_id = psql(f"SELECT btcpay_invoice_id FROM deposits WHERE id = '{deposit_id}'").strip()
+    if not invoice_id:
+        raise SmokeFailure(f"deposit {deposit_id} has no invoice id to ask BTCPay about")
+
+    client = btcpay_client(generated)
+
+    def settled() -> str | None:
+        response = client.get(f"/api/v1/invoices/{invoice_id}/payment-methods")
+        if response.status_code >= 400:
+            raise SmokeFailure(
+                f"could not read invoice {invoice_id}: {response.status_code} {response.text[:200]}"
+            )
+        for method in response.json():
+            for payment in method.get("payments") or []:
+                if payment.get("id") == payment_id:
+                    status = str(payment.get("status"))
+                    return status if status == "Settled" else None
+        return None
+
+    wait_until(
+        settled,
+        timeout=timeout,
+        description=f"BTCPay to settle the late payment {payment_id[:16]}... before it is resolved",
+    )
+
+
 def wait_for_withdrawal(
     api: Api, withdrawal_id: str, status: str, *, timeout: float = 300
 ) -> dict[str, Any]:
@@ -469,7 +523,7 @@ def drill_replay(api: Api, generated: dict[str, str]) -> None:
     log("  still exactly one credit after the replay storm")
 
 
-def drill_late(api: Api) -> None:
+def drill_late(api: Api, generated: dict[str, str]) -> None:
     log("drill: late — pay after expiry, expect review and an admin resolve")
     amount = Decimal("0.0625")
     deposit = api.create_deposit("late-user", f"late-{time.time()}")
@@ -499,6 +553,12 @@ def drill_late(api: Api) -> None:
     payments = queued[0]["payments"]
     if not payments:
         raise SmokeFailure("review item has no recorded payment — money was dropped")
+
+    # The queue lists the payment before BTCPay has finished with it. Resolving
+    # now is refused, and rightly so; wait for the settlement the resolve path
+    # is going to re-check anyway.
+    wait_for_settled_payment(generated, deposit_id, payments[0]["payment_id"])
+    log("  BTCPay settled the late payment; asking an admin to credit it")
 
     resolved = api.resolve(deposit_id, payments[0]["payment_id"])
     if resolved["credited"] != f"{amount:.8f}":
@@ -1030,7 +1090,7 @@ def main() -> int:
         "deposit": lambda: drill_deposit(api),
         "outage": lambda: drill_outage(api_key),
         "replay": lambda: drill_replay(api, generated),
-        "late": lambda: drill_late(api),
+        "late": lambda: drill_late(api, generated),
         "withdraw": lambda: drill_withdraw(api),
         "approval": lambda: drill_approval(api),
         "crash": lambda: drill_crash(api, generated),

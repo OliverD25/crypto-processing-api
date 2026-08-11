@@ -414,6 +414,68 @@ def test_resolve_rejects_a_payment_btcpay_does_not_report(
     assert response.status_code == 404
 
 
+def test_resolve_refuses_a_payment_btcpay_has_not_settled(
+    client: TestClient,
+    fake_btcpay: FakeBTCPay,
+    session_factory: sessionmaker[Session],
+    session: Session,
+    readwrite_key: str,
+    admin_key: str,
+) -> None:
+    """A deposit reaches `review` before its payment is final, and that gap is real.
+
+    A payment is *recorded* as soon as BTCPay mentions it, in any status but
+    `Invalid`, so a late payment puts the deposit in the review queue while it
+    is still `Processing`. An operator — or a drill — looking at that queue can
+    therefore ask to credit a payment that has not settled yet.
+
+    The answer has to be no, and it has to come from Greenfield rather than
+    from the recorded row: `Processing` can still become `Invalid`, and
+    crediting it would mint a balance for money that never arrived. Nothing is
+    credited and the deposit stays in `review`, so the same resolve works
+    unchanged once BTCPay settles it.
+
+    The nightly runner found this by racing it. The drill was asking too early;
+    this test is the assertion that asking too early can only ever be refused.
+    """
+    deposit = create_deposit(client, readwrite_key, user="unsettled-resolve")
+    invoice_id = next(iter(fake_btcpay.invoices))
+    payment_id = fake_btcpay.add_payment(invoice_id, HALF_BTC, status="Processing")
+    fake_btcpay.expire(invoice_id, additional_status="PaidLate")
+    post_webhook(client, fake_btcpay, fake_btcpay.webhook_payload("InvoiceExpired", invoice_id))
+    drain(session_factory, fake_btcpay)
+
+    queued = client.get("/v1/admin/deposits/review", headers=bearer(admin_key)).json()["deposits"]
+    assert [d["deposit_id"] for d in queued] == [deposit["deposit_id"]], (
+        "the deposit must be in the queue while its payment is still Processing — "
+        "that is the window this test is about"
+    )
+
+    response = client.post(
+        f"/v1/admin/deposits/{deposit['deposit_id']}/resolve",
+        json={"action": "credit", "payment_id": payment_id},
+        headers=bearer(admin_key),
+    )
+
+    assert response.status_code == 404
+    assert "not Settled" in response.json()["detail"]
+    assert available_balance(session, "unsettled-resolve") == 0
+
+    body = client.get(f"/v1/deposits/{deposit['deposit_id']}", headers=bearer(readwrite_key)).json()
+    assert body["status"] == "review"
+    assert body["amount_credited"] == "0.00000000"
+
+    # And once BTCPay settles it, the identical call credits exactly once.
+    fake_btcpay.settle(invoice_id, additional_status="PaidLate")
+    accepted = client.post(
+        f"/v1/admin/deposits/{deposit['deposit_id']}/resolve",
+        json={"action": "credit", "payment_id": payment_id},
+        headers=bearer(admin_key),
+    )
+    assert accepted.status_code == 200
+    assert available_balance(session, "unsettled-resolve") == HALF_BTC_SATS
+
+
 def test_resolve_only_works_from_review(
     client: TestClient,
     fake_btcpay: FakeBTCPay,
