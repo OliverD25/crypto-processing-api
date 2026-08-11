@@ -15,8 +15,9 @@ the documentation site:
 
 ## Run it
 
-Four commands from the repository root. The stack needs Docker and nothing
-else; the demo lands on <http://127.0.0.1:8096>.
+Four commands from the repository root, with Docker running and the package
+installed (`pip install -e ".[dev]"` — the bootstrap script is what needs it).
+The demo lands on <http://127.0.0.1:8096>.
 
 ```sh
 export COMPOSE_PROFILES=example

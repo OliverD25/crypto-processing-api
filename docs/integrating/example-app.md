@@ -37,8 +37,9 @@ reconcile because there is nothing mirrored.
 
 ## Running it
 
-Four commands from a checkout of the repository. Docker is the only
-prerequisite, and the demo lands on <http://127.0.0.1:8096>.
+Four commands from a checkout of the repository, with Docker running and the
+package installed (`pip install -e ".[dev]"`, which is what the bootstrap
+script needs). The demo lands on <http://127.0.0.1:8096>.
 
 ```sh
 export COMPOSE_PROFILES=example
