@@ -113,5 +113,13 @@ mine: ## Mine N regtest blocks, e.g. make mine N=101
 docker-build: ## Build the API image
 	docker build -t crypto-processing-api:dev .
 
+# Needs the example's own pinned dependencies, which the [dev] extra does not
+# carry: cd examples/platform-demo && pip install -r requirements.txt
+.PHONY: example
+example: ## Lint, typecheck and build the example integration app
+	$(BIN)/ruff check examples
+	$(BIN)/mypy examples/platform-demo/app.py
+	docker build -f examples/platform-demo/Dockerfile -t platform-demo:dev .
+
 .PHONY: ci
 ci: lint typecheck test cov ## Everything CI runs
