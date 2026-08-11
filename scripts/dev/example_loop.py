@@ -84,10 +84,12 @@ def refused(html: str) -> str | None:
 
 
 def btc_available(html: str) -> Decimal:
+    if 'id="balances"' not in html:
+        raise SmokeFailure(f"that is not the balances fragment: {html[:300]!r}")
     found = re.search(r'data-asset="BTC" data-available="([^"]+)"', html)
-    if not found:
-        raise SmokeFailure(f"no BTC row in the balances fragment: {html[:300]!r}")
-    return Decimal(found.group(1))
+    # A user who has never held anything has no row at all, and the demo says
+    # "no balances yet" rather than inventing a zero. Zero is still the answer.
+    return Decimal(found.group(1)) if found else Decimal(0)
 
 
 class Demo:
@@ -239,7 +241,10 @@ def run(*, check_webhooks: bool) -> None:
     wait_until(debited, timeout=120, description="the balance table to show the debit")
     log(f"  the balance table shows {btc_available(demo.get('/balances'))} BTC")
 
-    log("the example app did the whole loop: deposit, credit, webhook, withdrawal")
+    proved = (
+        "deposit, credit, webhook, withdrawal" if check_webhooks else "deposit, credit, withdrawal"
+    )
+    log(f"the example app did the whole loop: {proved}")
 
 
 def main() -> int:
