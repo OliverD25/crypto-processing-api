@@ -135,10 +135,17 @@ The Nile override adds the TRON settings to the ordinary regtest stack. The BTC
 half stays entirely offline; only the USDT half needs the internet.
 
 ```sh
-docker compose -f deploy/docker-compose.regtest.yml \
+docker compose --env-file .env \
+               -f deploy/docker-compose.regtest.yml \
                -f deploy/docker-compose.nile.override.yml up -d
 python scripts/bootstrap_btcpay.py
 ```
+
+`--env-file .env` is not optional. Compose looks for a default `.env` next to
+the *first compose file* — `deploy/`, where there is none — not in the
+repository root where section 8 puts it. Without the flag, `up` fails with
+`required variable TRON_HOT_WALLET_ADDRESS is missing a value` even though the
+value is right there in `.env`.
 
 `bootstrap_btcpay.py` writes `.env.regtest.generated`, which the verification
 script reads to talk to BTCPay. It is idempotent.
@@ -185,7 +192,8 @@ faucet claim; the habit is still worth keeping.
 ## 7. Turn the asset on (5 minutes)
 
 ```sh
-docker compose -f deploy/docker-compose.regtest.yml \
+docker compose --env-file .env \
+               -f deploy/docker-compose.regtest.yml \
                -f deploy/docker-compose.nile.override.yml \
                up -d --force-recreate api worker
 ```
@@ -201,8 +209,11 @@ restarted after installing it.
 
 ## 8. The environment (5 minutes)
 
-Both docker compose and the verification script read `.env` in the repository
-root, so one file configures both. It needs five values:
+Both docker compose and the verification script are pointed at `.env` in the
+repository root, so one file configures both. The verification script finds it
+on its own; docker compose does not — it only looks next to the first compose
+file, which is why every compose command in this runbook carries
+`--env-file .env`. The file needs five values:
 
 ```sh
 TRON_NETWORK=nile

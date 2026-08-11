@@ -1,7 +1,11 @@
 # USDT-TRC20 against the TRON Nile testnet.
 #
-#   docker compose -f deploy/docker-compose.regtest.yml \
+#   docker compose --env-file .env \
+#                  -f deploy/docker-compose.regtest.yml \
 #                  -f deploy/docker-compose.nile.override.yml up -d
+#
+# --env-file matters: the variables below live in the repository root's .env,
+# but compose only auto-loads a .env sitting next to the first compose file.
 #
 # There is no TRON regtest. The USDt plugin ships Nile support, so testnet is
 # as local as USDT gets, and it needs the internet, a TronGrid API key and
@@ -26,7 +30,8 @@
 #     surfaces to the platform as 503 DEPOSIT_TEMPORARILY_UNAVAILABLE.
 #  4. Restart the api and worker so payment-method discovery sees the new
 #     method and re-enables the USDT_TRC20 asset:
-#       docker compose -f deploy/docker-compose.regtest.yml \
+#       docker compose --env-file .env \
+#                      -f deploy/docker-compose.regtest.yml \
 #                      -f deploy/docker-compose.nile.override.yml \
 #                      up -d --force-recreate api worker
 #

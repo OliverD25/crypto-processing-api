@@ -1271,6 +1271,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     env: dict[str, str] = {**load_env_file(args.env_file), **os.environ}
+    # Subprocesses need the same merge. `docker compose exec` re-interpolates
+    # the Nile override, whose `${TRONGRID_API_KEY:?}`-style required variables
+    # look at the process environment — compose does not know about --env-file
+    # here — so a value the script loaded but never exported would still abort
+    # every compose() call.
+    os.environ.update(env)
     config = load_config(env)
     selected = stages_from(args.stage)
 
