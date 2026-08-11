@@ -6,7 +6,10 @@
 #     cd examples/platform-demo && pip install -r requirements.txt
 
 fastapi==0.141.1
-uvicorn[standard]==0.52.1
+# Plain, not `uvicorn[standard]`. The service itself takes the extras because
+# they are worth it under load; a demo does not, and the four wheels they pull
+# in were the slowest part of building this image.
+uvicorn==0.52.1
 # FastAPI renders the pages with it, and parses the HTML form posts with the
 # one below. Neither is pulled in by FastAPI itself.
 jinja2==3.1.6
