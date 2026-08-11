@@ -362,13 +362,17 @@ def _withdrawal_card(
     # Only the creation response carries `approval_reason` — which of the three
     # gates sent this one to an operator. Worth showing: the same amount can be
     # auto-approved in the morning and queued in the afternoon, because the
-    # per-asset 24-hour cap is shared across every user.
-    reason = getattr(withdrawal, "approval_reason", None)
+    # per-asset 24-hour cap is shared across every user, not per user.
+    reason: str | None = None
+    if isinstance(withdrawal, WithdrawalCreatedResponse) and isinstance(
+        withdrawal.approval_reason, str
+    ):
+        reason = withdrawal.approval_reason
     return _page(
         request,
         "_withdrawal.html",
         w=withdrawal,
-        reason=reason if isinstance(reason, str) else None,
+        reason=reason,
         moving=withdrawal.status not in WITHDRAWAL_SETTLED,
     )
 
