@@ -170,7 +170,10 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: The package must contain what it says it does
-        run: npm pack --pack-destination ../../dist-npm
+        # `npm pack` will not create the destination directory itself.
+        run: |
+          mkdir -p ../../dist-npm
+          npm pack --pack-destination ../../dist-npm
       - uses: actions/upload-artifact@v4
         with:
           name: npm-tarball
