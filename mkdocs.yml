@@ -99,6 +99,8 @@ nav:
       - Security model: operating/security.md
       - Backups and restore: operating/backups.md
       - Nightly end-to-end tests: operating/nightly-e2e.md
+      - "Runbook: verifying USDT on TRON Nile": operating/runbook-nile-verification.md
+      - Live verification log: operating/verification-log.md
       - "Runbook: sending a USDT withdrawal": operating/runbook-usdt-withdrawals.md
       - "Runbook: attributing a USDT deposit": operating/runbook-usdt-attribution.md
       - "Runbook: a reorged deposit": operating/runbook-reorg.md

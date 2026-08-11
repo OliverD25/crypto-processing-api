@@ -75,13 +75,23 @@ not when it is started.
 - [ ] **Docs site** — the existing markdown, published, with the OpenAPI
   reference rendered from the committed spec and a generated configuration
   page so `.env.example` can never drift from `Settings` again.
-- [ ] **Example integration app** — a small platform that creates a deposit,
+- [x] **Example integration app** — a small platform that creates a deposit,
   polls it, shows balances, requests a withdrawal, and receives webhooks the
-  way the docs say to. Its loop runs in the nightly, because a tutorial that
-  rots fails in front of the worst possible reader.
-- [ ] **Live TRON Nile verification** — USDT cannot run on regtest, so its
-  matcher and verifier are format-verified only. A manual session on Nile with
-  a real deposit and a real withdrawal is a hard gate before the v0.2.0 tag.
+  way the docs say to. It lives in
+  [`examples/platform-demo/`](examples/platform-demo/) and is written as a
+  tutorial; [`scripts/dev/example_loop.py`](scripts/dev/example_loop.py) drives
+  its whole loop headlessly through its own pages, and the nightly runs that
+  script — because a tutorial that rots fails in front of the worst possible
+  reader.
+- [ ] **Live TRON Nile verification** — **kit ready, awaiting the live
+  session.** USDT cannot run on regtest, so its matcher and verifier are
+  format-verified only. Everything that can be prepared in advance is:
+  [`docs/operating/runbook-nile-verification.md`](docs/operating/runbook-nile-verification.md)
+  is the manual half, `scripts/verify_nile.py` is the guided half, and
+  [`docs/operating/verification-log.md`](docs/operating/verification-log.md)
+  is where the evidence lands. What is left is the session itself — one real
+  deposit and one real withdrawal on Nile, which needs a person with two
+  wallets and faucet funds. It stays a hard gate before the v0.2.0 tag.
 - [ ] **Release v0.2.0** — changelog with a Breaking / Migration section, a
   frozen `v0.2.0` database dump, and a proven `v0.1.x → v0.2.0` upgrade by pull
   plus `alembic upgrade head` plus restart.
