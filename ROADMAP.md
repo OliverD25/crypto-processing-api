@@ -95,9 +95,12 @@ not when it is started.
   and `scripts/verify_nile.py` are the two halves that drove it, and the
   payloads it captured are committed under `tests/fixtures/tron/` so the fake
   cannot drift back. Mainnet was read, never written to.
-- [ ] **Release v0.2.0** — changelog with a Breaking / Migration section, a
-  frozen `v0.2.0` database dump, and a proven `v0.1.x → v0.2.0` upgrade by pull
-  plus `alembic upgrade head` plus restart.
+- [x] **Release v0.2.0** — tagged 2026-08-11. The changelog carries the
+  Breaking / Migration section (nothing on the wire breaks; one deliberate
+  startup behaviour change is called out), the frozen `v0.2.0` database dump
+  is committed, and the `v0.1.x → v0.2.0` upgrade — pull, `alembic upgrade
+  head`, restart — is enforced by CI upgrading the frozen v0.1.1 dump on
+  every build.
 
 ## Not planned
 
