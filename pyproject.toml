@@ -108,7 +108,10 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 plugins = []
-files = ["src"]
+# `verify_nile.py` is the one script in here that makes assertions about money
+# against a live network, and it runs once, by hand, with an operator waiting.
+# A type error found at that moment costs a session; CI is where it belongs.
+files = ["src", "scripts/verify_nile.py"]
 
 [[tool.mypy.overrides]]
 module = ["alembic.*"]

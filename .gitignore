@@ -36,6 +36,11 @@ Thumbs.db
 # Hypothesis keeps failing counterexamples here. Useful locally, noise in git.
 .hypothesis/
 
+# Raw TronGrid payloads, session state and the draft log from
+# scripts/verify_nile.py. One operator's session scratch: the assertions are
+# what matter, and they end up in docs/operating/verification-log.md.
+spike-evidence-nile/
+
 # Node / TypeScript SDK
 node_modules/
 sdks/typescript/dist/
