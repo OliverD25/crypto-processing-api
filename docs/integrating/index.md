@@ -76,6 +76,12 @@ call, retry a `503` and an in-flight `409` while honouring `Retry-After`, and
 raise a typed error for every refusal. Both leave amounts and timestamps as
 strings.
 
+If you would rather read a whole working platform than a page of rules, there
+is one: [`examples/platform-demo/`](example-app.md) is a fake login, a deposit
+with polling, balances, a withdrawal and a verified webhook endpoint, running
+against a local regtest network. Its webhook handler is the five-step contract
+below, numbered to match.
+
 Everything below still applies — the clients are a convenience over this API,
 not a different one. If you are on another stack, read on; there is nothing
 here you cannot do with an HTTP library.
