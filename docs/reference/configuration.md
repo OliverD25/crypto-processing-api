@@ -142,7 +142,7 @@ for `BTC` and `BTC_LN`, micro-USDT for `USDT_TRC20`.
 | `TRON_NETWORK` | `mainnet` \| `nile` | `mainnet` | Selects the default TronGrid endpoint and the default USDT contract. |
 | `TRONGRID_BASE_URL` | `str` | *(unset)* | Override the endpoint for your own node or a paid provider. Unset uses the network's TronGrid default. |
 | `TRONGRID_API_KEY` | `str` | *(unset)* | **secret** — Required in production once a hot wallet address is set: keyless TronGrid access is throttled unpredictably, and what gets throttled is the check that a withdrawal really happened. |
-| `USDT_CONTRACT_ADDRESS` | `str` | *(unset)* | Must match what the USDt plugin watches. The withdrawal verifier refuses a transfer of any other token. Unset uses the network default, and the Nile default is format-checked only — set it explicitly there. |
+| `USDT_CONTRACT_ADDRESS` | `str` | *(unset)* | Must match what the USDt plugin watches. The withdrawal verifier refuses a transfer of any other token. Unset uses the network default; both defaults were read off their chains on 2026-08-11 and answered `USDT` / `6`, so setting this is about agreeing with your plugin rather than about distrusting the default. |
 | `TRON_HOT_WALLET_ADDRESS` | `str` | *(unset)* | The address USDT is sent from. Verification compares every transfer's sender against it, so a wrong value rejects every genuine withdrawal. Unset disables the TRON jobs entirely, which is right for a BTC-only deployment. |
 | `TRON_CONFIRMATIONS` | `int` | `19` | ≥ 1 — Blocks before a manual USDT withdrawal is treated as final. 19 is roughly TRON's solidified-block distance. |
 | `GAS_MONITOR_INTERVAL_SECONDS` | `float` | `900.0` | > 0 — How often the TRX gas balance of the hot wallet is checked. |

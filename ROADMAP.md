@@ -84,15 +84,17 @@ not when it is started.
   its whole loop headlessly through its own pages, and the nightly runs that
   script — because a tutorial that rots fails in front of the worst possible
   reader.
-- [ ] **Live TRON Nile verification** — **kit ready, awaiting the live
-  session.** USDT cannot run on regtest, so its matcher and verifier are
-  format-verified only. Everything that can be prepared in advance is:
+- [x] **Live TRON Nile verification** — **done, 2026-08-11.** USDT cannot run
+  on regtest, so its matcher and verifier used to be format-verified only. One
+  live session on Nile settled that: a real deposit credited, a real withdrawal
+  verified and confirmed 39 blocks deep, the same txid refused a second time
+  with a `409`, and both USDT contracts read off their own chain. The evidence
+  is in
+  [`docs/operating/verification-log.md`](docs/operating/verification-log.md);
   [`docs/operating/runbook-nile-verification.md`](docs/operating/runbook-nile-verification.md)
-  is the manual half, `scripts/verify_nile.py` is the guided half, and
-  [`docs/operating/verification-log.md`](docs/operating/verification-log.md)
-  is where the evidence lands. What is left is the session itself — one real
-  deposit and one real withdrawal on Nile, which needs a person with two
-  wallets and faucet funds. It stays a hard gate before the v0.2.0 tag.
+  and `scripts/verify_nile.py` are the two halves that drove it, and the
+  payloads it captured are committed under `tests/fixtures/tron/` so the fake
+  cannot drift back. Mainnet was read, never written to.
 - [ ] **Release v0.2.0** — changelog with a Breaking / Migration section, a
   frozen `v0.2.0` database dump, and a proven `v0.1.x → v0.2.0` upgrade by pull
   plus `alembic upgrade head` plus restart.

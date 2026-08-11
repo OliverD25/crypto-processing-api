@@ -208,7 +208,7 @@ BTCPay > Server Settings > USDt:
 | Setting | Mainnet | Nile testnet |
 |---|---|---|
 | TRON JSON-RPC | `https://api.trongrid.io/jsonrpc` | `https://nile.trongrid.io/jsonrpc` |
-| USDT contract | `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` | check against your own deployment |
+| USDT contract | `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` | `TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf`, and check it against your own deployment |
 | TronGrid API key | required | required |
 
 **Register for a TronGrid API key.** The free tier is 100,000 requests a day at
@@ -219,12 +219,15 @@ Set the same contract address in this service's `USDT_CONTRACT_ADDRESS`. The
 two must agree: BTCPay watches for incoming transfers of that token, and the
 withdrawal verifier refuses any transfer of a different one.
 
-The Nile contract address shipped as a default in `config.py` is
-format-verified only — it has not been confirmed against a live Nile node.
-Check it against whatever the plugin is pointed at before trusting it.
-The guided check for exactly this is the
-[Nile verification runbook](runbook-nile-verification.md) — its preflight
-reads `symbol()` and `decimals()` from the live contract on both networks.
+The Nile contract address shipped as a default in `config.py` was confirmed
+against a live Nile node on 2026-08-11: it answers `symbol()` = `USDT` and
+`decimals()` = `6`. The session is recorded in the
+[live verification log](verification-log.md). Check it against whatever the
+plugin is pointed at anyway — a confirmed default is still a default, and a
+faucet may hand out a different test token. The guided check for exactly that
+is the [Nile verification runbook](runbook-nile-verification.md) — its
+preflight reads `symbol()` and `decimals()` from the live contract on both
+networks.
 
 ## 3. Address pool — the part with the sharp edge
 

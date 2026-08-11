@@ -250,8 +250,10 @@ class Settings(BaseSettings):
     #: the check that a withdrawal really happened.
     trongrid_api_key: OptionalStr = None
     #: Must match what the USDt plugin watches. The withdrawal verifier refuses
-    #: a transfer of any other token. Unset uses the network default, and the
-    #: Nile default is format-checked only — set it explicitly there.
+    #: a transfer of any other token. Unset uses the network default; both
+    #: defaults were read off their chains on 2026-08-11 and answered `USDT` /
+    #: `6`, so setting this is about agreeing with your plugin rather than
+    #: about distrusting the default.
     usdt_contract_address: OptionalStr = None
     #: The address USDT is sent from. Verification compares every transfer's
     #: sender against it, so a wrong value rejects every genuine withdrawal.
@@ -406,9 +408,12 @@ class Settings(BaseSettings):
     def usdt_contract(self) -> str:
         """The configured contract, or the default for this network.
 
-        The Nile default is format-checked but not confirmed against a live
-        node, so a Nile deployment should set USDT_CONTRACT_ADDRESS explicitly
-        to whatever the USDt plugin is pointed at.
+        Both defaults were confirmed against a live node on 2026-08-11 —
+        `symbol()` = USDT and `decimals()` = 6 on each — and the session is
+        recorded in docs/operating/verification-log.md. Setting
+        USDT_CONTRACT_ADDRESS explicitly still matters: BTCPay's USDt plugin
+        watches one token and the withdrawal verifier refuses every other one,
+        so the two settings have to name the same contract whatever it is.
         """
         if self.usdt_contract_address:
             return self.usdt_contract_address

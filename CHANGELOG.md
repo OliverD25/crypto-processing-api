@@ -96,6 +96,17 @@ Notable changes to this project. The format follows
   a pull-request template that inlines the nine ledger invariants,
   `CODE_OF_CONDUCT.md`, `ROADMAP.md` with an explicit "not planned" list,
   Dependabot, and `docs/reference/versioning.md`.
+- **USDT is live-verified, and the log says so with transaction ids.** The
+  TRON Nile session ran on 2026-08-11: a real deposit credited to the
+  micro-USDT, a real withdrawal verified against TronGrid and confirmed 39
+  blocks deep, the same transaction id refused a second time with a `409`, and
+  both USDT contracts read off their own chain answering `USDT` / `6`. It is
+  recorded in
+  [`docs/operating/verification-log.md`](https://github.com/OliverD25/crypto-processing-api/blob/main/docs/operating/verification-log.md),
+  and the "format-verified only, NOT confirmed against a live node" caveat is
+  gone from the five places that carried it. Mainnet was read and never
+  written to: no mainnet transaction has been created, sent or verified from
+  here, and the comments say exactly that.
 
 ### Changed
 

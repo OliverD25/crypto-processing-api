@@ -10,8 +10,14 @@ so a parser bug still fails a test. What it cannot do is notice that TronGrid
 sends a field the fake never heard of, or that the contract address shipped as
 a default is not the contract anyone deployed.
 
-One live session on the Nile testnet closes that gap. It is the hard gate
-before the `v0.2.0` tag, and it happens once, by hand, with real testnet money.
+One live session on the Nile testnet closes that gap. The first one ran on
+2026-08-11 and is recorded in the
+[live verification log](verification-log.md); the payloads it captured are
+committed under `tests/fixtures/tron/`, so the suite now parses real TronGrid
+bytes as well as invented ones. That corpus ages, though — it only knows the
+TronGrid of the day it was recorded — which is why the session is repeatable
+and why this page exists. It is the hard gate
+before the `v0.2.0` tag, and it happens by hand, with real testnet money.
 This page is the half you do yourself. The other half is
 [`scripts/verify_nile.py`](https://github.com/OliverD25/crypto-processing-api/blob/main/scripts/verify_nile.py),
 which walks you through the rest in six numbered stages.
@@ -313,19 +319,25 @@ Stage 6 prints a filled verification-log entry and writes it to
 `spike-evidence-nile/verification-log-<date>.md`. Three things follow from a
 green session:
 
-1. **Paste the entry into [`verification-log.md`](verification-log.md)** and
-   commit it. That page is the adopter-facing evidence that any of this was
-   ever run for real.
-2. **Downgrade the caveats the entry lists.** `USDT_CONTRACT_NILE` is described
-   as "format-verified only, NOT confirmed against a live Nile node" in five
-   places — `gateway/trongrid.py`, `config.py`, `.env.example`,
-   `btcpay-setup.md` and the Nile override. Replace that with "confirmed
-   against Nile on `<date>`, tx `<txid>`". Keep the advice to check it against
-   your own plugin configuration: that stays true regardless.
-3. **Fix `tests/fake_tron.py` against anything stage 5 found**, and add a
-   regression test built from a captured payload. The fake's docstring claims
-   it is built from the shape TronGrid actually returns. This session is what
-   makes that claim true.
+1. **Paste the entry into the
+   [live verification log](verification-log.md#runs)** and commit it. That page
+   is the adopter-facing evidence that any of this was ever run for real, and
+   every entry on it is one stage-6 report pasted verbatim.
+2. **Downgrade any caveat the entry lists as downgraded.** The first green
+   session, on 2026-08-11, took `USDT_CONTRACT_NILE` from "format-verified
+   only, NOT confirmed against a live Nile node" to confirmed in all five
+   places that said it — `gateway/trongrid.py`, `config.py`, `.env.example`,
+   `btcpay-setup.md` and the Nile override. A later session re-reads the same
+   contract, so what it changes is the date; if the answer ever stops being
+   `USDT` / `6`, that is the news and the wording goes back. Keep the advice to
+   check the address against your own plugin configuration: that stays true
+   regardless.
+3. **Fix `tests/fake_tron.py` against anything stage 5 found.** The 2026-08-11
+   session found 20 shape differences and closed them, and the payloads it
+   captured are committed under `tests/fixtures/tron/` with
+   `tests/unit/test_tron_payload_corpus.py` holding the fake to them. A stage 5
+   that still reports differences means TronGrid has moved since; fix the fake,
+   recapture the corpus, and read the diff rather than accepting it.
 
 The raw payloads under `spike-evidence-nile/` are not committed. They hold
 nothing secret — the API key travels in a header and is never captured — but

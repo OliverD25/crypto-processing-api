@@ -642,10 +642,11 @@ def read_metadata(
 ) -> Trc20Metadata:
     """`symbol()`/`decimals()`, retried once as a real address if needed.
 
-    The default caller is TronWeb's all-zero placeholder. It is the ordinary
-    choice for a constant call and has never been tried against a live node
-    from here, so a refusal falls back to the hot wallet rather than ending the
-    session on a formality.
+    The default caller is TronWeb's all-zero placeholder. Both Nile and mainnet
+    TronGrid accepted it on 2026-08-11, so the fallback is no longer the
+    expected path — it stays because a different node or a paid provider may
+    still refuse it, and losing a booked session to a formality is the wrong
+    trade.
     """
     try:
         return client.get_trc20_metadata(contract)

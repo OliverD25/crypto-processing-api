@@ -42,13 +42,18 @@ SUN_PER_TRX = 1_000_000
 #: keccak256("Transfer(address,address,uint256)")
 TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-#: Well-known mainnet USDT-TRC20 contract. Verified by round-tripping its hex
-#: form (41a614f803b6fd780986a42c78ec9c7f77e6ded13c) through base58check.
+#: Well-known mainnet USDT-TRC20 contract. Read live on 2026-08-11 against
+#: api.trongrid.io: it answers `symbol()` = USDT and `decimals()` = 6. That
+#: read is all that was done on mainnet — no mainnet transaction has ever been
+#: created, sent or verified from here. See docs/operating/verification-log.md.
 USDT_CONTRACT_MAINNET = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 
-#: Commonly used Nile-testnet USDT contract. Format-verified only — this one is
-#: NOT confirmed against a live Nile node, and the operator must check it
-#: against whatever the USDt plugin is configured with before trusting it.
+#: Nile-testnet USDT contract. Confirmed against a live Nile node on
+#: 2026-08-11 — it answers `symbol()` = USDT and `decimals()` = 6 on
+#: nile.trongrid.io, and a deposit and a withdrawal were settled through it
+#: (docs/operating/verification-log.md). A confirmed default is still a
+#: default: the operator must check it against whatever the USDt plugin is
+#: configured with, because BTCPay and this service have to watch one token.
 USDT_CONTRACT_NILE = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 
 TRONGRID_MAINNET = "https://api.trongrid.io"

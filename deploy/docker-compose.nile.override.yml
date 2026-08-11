@@ -110,9 +110,10 @@ services:
       # Required. Keyless TronGrid is throttled unpredictably, and what gets
       # throttled is the check that a withdrawal really happened.
       TRONGRID_API_KEY: ${TRONGRID_API_KEY:?set TRONGRID_API_KEY to a TronGrid key}
-      # The Nile USDT contract. The default in config.py is format-checked but
-      # not confirmed against a live node — set it to whatever the plugin is
-      # configured with.
+      # The Nile USDT contract. The default in config.py was confirmed against
+      # a live Nile node on 2026-08-11 (symbol()=USDT, decimals()=6; see
+      # docs/operating/verification-log.md). Still set it to whatever the
+      # plugin is configured with — the two have to watch one token.
       USDT_CONTRACT_ADDRESS: ${USDT_CONTRACT_ADDRESS:-TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf}
       # The address USDT is sent *from*. Verification compares every transfer's
       # sender against this, so a wrong value rejects every real withdrawal.
