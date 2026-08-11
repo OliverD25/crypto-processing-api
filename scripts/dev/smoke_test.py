@@ -33,6 +33,11 @@ The Lightning drills need the overlay stack and are skipped without it:
                  cancels it and the node's own answer releases the hold
   ln_expired     an expired invoice is refused before any balance is held
 
+Before the first drill, a readiness gate waits for BTCPay to actually be able
+to issue a deposit invoice — see `wait_for_deposit_capability`. On a cold stack
+the 101 blocks mined above take NBXplorer a while to index, and until it has,
+invoice creation is refused. `--readiness-timeout` bounds the wait.
+
 This is a manual script, not part of pytest: it needs the whole stack, and two
 of the drills wait on real wall-clock deadlines.
 """
@@ -62,6 +67,10 @@ WALLET = "regtest"
 
 BTC = "BTC"
 BTC_LN = "BTC_LN"
+
+#: Whose deposits the readiness gate creates. No drill reads this user, so the
+#: probe cannot move a number any assertion depends on.
+READINESS_USER = "readiness-probe"
 
 #: Set once `main` knows whether a Lightning drill was asked for. The overlay
 #: has to be on every compose call or `exec` cannot see the LND containers.
@@ -183,6 +192,21 @@ class Api:
         if response.status_code != 201:
             raise SmokeFailure(f"withdrawal request failed: {response.status_code} {response.text}")
         return dict(response.json())
+
+    def deposit_attempt(
+        self, user: str, idempotency_key: str, *, asset: str = BTC
+    ) -> tuple[int, str]:
+        """A creation attempt that reports its refusal instead of raising.
+
+        The readiness gate needs the status code, and `create_deposit` folds it
+        into a message.
+        """
+        response = self.client.post(
+            "/v1/deposits",
+            json={"external_user_id": user, "asset": asset},
+            headers={"Idempotency-Key": idempotency_key},
+        )
+        return response.status_code, response.text
 
     def withdrawal_refusal(
         self, user: str, sats: int, destination: str, idempotency_key: str, *, asset: str = BTC
@@ -310,6 +334,106 @@ def wait_for_api() -> None:
             return False
 
     wait_until(healthy, timeout=120, description="the api to answer /healthz")
+
+
+# -- readiness ------------------------------------------------------------
+#
+# `synchronized` from BTCPay before the drills start is not enough. The first
+# thing a cold run does is mine 101 blocks so coinbase outputs mature, and
+# NBXplorer then has 101 blocks to index — during which BTCPay refuses to issue
+# an invoice, because it cannot get an address for a derivation scheme it is
+# still catching up on. On fast hardware the indexing finishes before anyone
+# asks; on slow hardware drill 1 fails 0.6 seconds in with a 502 that looks
+# like a bug in this service and is not one.
+
+
+#: The one refusal that means "still warming up". The api turns any 4xx from
+#: BTCPay on invoice creation into this 502. Everything else a deposit request
+#: can answer with is a real failure and must not be waited out.
+NOT_READY_DETAIL = "BTCPay rejected the invoice request"
+
+
+def btcpay_not_ready(status_code: int, body: str) -> bool:
+    """True only for the cold-start refusal the readiness gate waits out."""
+    return status_code == 502 and NOT_READY_DETAIL in body
+
+
+def wait_for_btcpay_sync(generated: dict[str, str], *, timeout: float) -> bool:
+    """The cheap check: has NBXplorer caught up with the node?
+
+    `/api/v1/health` needs no key and answers `{"synchronized": false}` while
+    any chain is behind, which is exactly the state freshly mined blocks put it
+    in. It is a hint rather than a verdict — it says nothing about the store's
+    wallet — so a timeout here is reported and not fatal. The invoice probe
+    below is what decides.
+    """
+    url = f"{generated['BTCPAY_PUBLIC_URL'].rstrip('/')}/api/v1/health"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            response = httpx.get(url, timeout=10)
+            if response.status_code == 200 and response.json().get("synchronized"):
+                return True
+        except (httpx.HTTPError, ValueError):
+            pass
+        time.sleep(2.0)
+    log(f"BTCPay never reported synchronized within {timeout:.0f}s; trying an invoice anyway")
+    return False
+
+
+def wait_for_invoice_capability(
+    probe: Callable[[], tuple[int, str]],
+    *,
+    timeout: float,
+    interval: float = 5.0,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> int:
+    """Block until `probe` can create a deposit invoice. Returns the attempt count.
+
+    Retries the cold-start 502 and nothing else: a 401, a 422 or a 500 means
+    the run is broken and waiting three more minutes only delays saying so.
+    """
+    deadline = monotonic() + timeout
+    attempt = 0
+    while True:
+        attempt += 1
+        status_code, body = probe()
+        if 200 <= status_code < 300:
+            return attempt
+        if not btcpay_not_ready(status_code, body):
+            raise SmokeFailure(
+                f"deposit creation answered {status_code}, which is not the cold-start "
+                f"refusal this gate waits out: {body[:300]}"
+            )
+        if monotonic() >= deadline:
+            raise SmokeFailure(
+                f"BTCPay could still not issue a deposit invoice after {timeout:.0f}s and "
+                f"{attempt} attempts. Last answer: {status_code} {body[:300]}"
+            )
+        log(f"BTCPay not ready for invoices yet (attempt {attempt}), waiting...")
+        sleep(interval)
+
+
+def wait_for_deposit_capability(api: Api, generated: dict[str, str], *, timeout: float) -> None:
+    """Prove the stack can issue a deposit invoice before any drill asserts anything.
+
+    The probe deposits belong to a user no drill touches, so the exact-satoshi
+    assertions are unaffected. A successful one is abandoned rather than paid:
+    it expires on its own, and the alternative — handing it to drill 1 — would
+    make the first drill depend on a code path the other six do not use.
+    """
+    deadline = time.monotonic() + timeout
+    wait_for_btcpay_sync(generated, timeout=timeout)
+    # A floor, so that a slow sync check cannot leave the probe no time at all.
+    remaining = max(15.0, deadline - time.monotonic())
+    attempts = wait_for_invoice_capability(
+        lambda: api.deposit_attempt(READINESS_USER, f"ready-{time.time()}"),
+        timeout=remaining,
+    )
+    # Always, even when it passed first time. A gate that is silent when it
+    # works cannot be told apart in a log from a gate that is not there.
+    log(f"BTCPay can issue a deposit invoice (attempt {attempts}); starting the drills")
 
 
 def psql(statement: str) -> str:
@@ -1055,6 +1179,16 @@ def main() -> int:
             "four BTC_LN drills; 'all' is everything. Default: fast."
         ),
     )
+    parser.add_argument(
+        "--readiness-timeout",
+        type=float,
+        default=180.0,
+        help=(
+            "seconds to wait for BTCPay to become able to issue a deposit invoice, "
+            "before the first drill. A warm stack passes on the first attempt; a cold "
+            "one on slow hardware needs the wait. Default: 180."
+        ),
+    )
     args = parser.parse_args()
 
     selected = set(args.drill or ["fast"])
@@ -1085,6 +1219,9 @@ def main() -> int:
     fund_node()
     api_key = create_api_key()
     api = Api(api_key)
+    # After the mining above, not before: those 101 blocks are what NBXplorer
+    # has to catch up on, and the whole point of this gate is to wait for that.
+    wait_for_deposit_capability(api, generated, timeout=args.readiness_timeout)
 
     runners: dict[str, Callable[[], None]] = {
         "deposit": lambda: drill_deposit(api),
