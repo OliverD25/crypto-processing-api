@@ -103,6 +103,7 @@ def sync_payment_methods_at_startup(settings: Settings) -> None:
         resolved=report.resolved,
         updated=report.updated,
         disabled=report.disabled,
+        enabled=report.enabled,
     )
 
 

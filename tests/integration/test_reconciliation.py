@@ -366,6 +366,51 @@ def test_usdt_is_kept_when_the_plugin_is_present(session: Session, fake_btcpay: 
     assert report.disabled == []
 
 
+def test_usdt_is_reenabled_when_the_plugin_appears_later(
+    session: Session, fake_btcpay: FakeBTCPay
+) -> None:
+    """The disable must not be a one-way door.
+
+    Found live on Nile: the store's USDt method goes live minutes after the
+    service first boots (plugin install + settings are manual UI work), and a
+    sync that skips disabled assets leaves USDT off through every restart that
+    follows. The store is the operator's switch; this sync follows it both
+    ways.
+    """
+    report = asset_service.sync_payment_methods(session, fake_btcpay)
+    session.commit()
+    assert USDT in report.disabled
+
+    fake_btcpay.payment_methods = ["BTC-CHAIN", "USDT-TRON"]
+    report = asset_service.sync_payment_methods(session, fake_btcpay)
+    session.commit()
+
+    assert USDT in report.enabled
+    assert report.resolved[USDT] == "USDT-TRON"
+    usdt = session.get(Asset, USDT)
+    assert usdt
+    assert usdt.enabled is True
+    assert usdt.btcpay_payment_method == "USDT-TRON"
+
+
+def test_a_disabled_asset_with_no_method_stays_quietly_disabled(
+    session: Session, fake_btcpay: FakeBTCPay
+) -> None:
+    """No re-disable report spam, no warning, on every later boot."""
+    report = asset_service.sync_payment_methods(session, fake_btcpay)
+    session.commit()
+    assert USDT in report.disabled
+
+    report = asset_service.sync_payment_methods(session, fake_btcpay)
+    session.commit()
+
+    assert report.disabled == []
+    assert report.enabled == []
+    usdt = session.get(Asset, USDT)
+    assert usdt
+    assert usdt.enabled is False
+
+
 def test_an_invoice_status_this_version_never_heard_of_is_survivable(
     session: Session, session_factory: sessionmaker[Session], fake_btcpay: FakeBTCPay
 ) -> None:

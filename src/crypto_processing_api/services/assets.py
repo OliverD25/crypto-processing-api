@@ -13,6 +13,14 @@ Policy when an enabled asset has no matching payment method on the store:
 - **Everything else is disabled with a warning.** USDT needs the USDt plugin
   installed and an address pool provisioned, which is M4 work. Refusing to boot
   until then would make the BTC path hostage to an asset nobody has configured.
+
+And the reverse: **a disabled asset whose method has appeared is re-enabled.**
+The store is the operator's on/off switch — there is no admin endpoint for
+asset enablement, so `enabled=false` on a profiled asset can only mean this
+sync turned it off. Without the reverse direction the disable is a one-way
+door: configure the plugin a minute after the first boot and no number of
+restarts brings the asset back (found live on Nile, 2026-08-11). Rows without
+a registry profile are never touched in either direction.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ class SyncReport:
     resolved: dict[str, str] = field(default_factory=dict)
     updated: list[str] = field(default_factory=list)
     disabled: list[str] = field(default_factory=list)
+    enabled: list[str] = field(default_factory=list)
 
 
 def _matches(profile: AssetProfile | None, current: str, payment_method_id: str) -> bool:
@@ -67,9 +76,10 @@ def sync_payment_methods(session: Session, gateway: BTCPayGateway) -> SyncReport
 
     registry = get_registry()
     for asset in session.execute(select(Asset).order_by(Asset.id)).scalars():
-        if not asset.enabled:
-            continue
         profile = registry.get(asset.id)
+        if not asset.enabled and profile is None:
+            # An unknown disabled row is somebody's data, not this sync's.
+            continue
         match = next(
             (
                 candidate
@@ -79,6 +89,8 @@ def sync_payment_methods(session: Session, gateway: BTCPayGateway) -> SyncReport
             None,
         )
         if match is None:
+            if not asset.enabled:
+                continue
             if profile is not None and profile.required:
                 raise PaymentMethodMissing(
                     f"store {gateway.store_id} has no enabled payment method for {asset.id}; "
@@ -94,6 +106,15 @@ def sync_payment_methods(session: Session, gateway: BTCPayGateway) -> SyncReport
             )
             continue
 
+        if not asset.enabled:
+            asset.enabled = True
+            report.enabled.append(asset.id)
+            logger.info(
+                "assets.payment_method_recovered",
+                asset=asset.id,
+                current=match,
+                action="asset re-enabled",
+            )
         report.resolved[asset.id] = match
         if match != asset.btcpay_payment_method:
             logger.info(

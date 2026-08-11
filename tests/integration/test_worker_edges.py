@@ -54,11 +54,19 @@ DEAD_PLATFORM = "http://127.0.0.1:9/hooks"
 # -- payment-method discovery ---------------------------------------------
 
 
-def test_an_asset_that_is_already_disabled_is_left_alone(
+def test_a_disabled_asset_with_a_live_method_is_reenabled(
     session: Session, fake_btcpay: FakeBTCPay
 ) -> None:
-    """Re-enabling an asset an operator turned off, because BTCPay happens to
-    serve it again, would take a deliberate decision away from them."""
+    """The store's payment method is the operator's on/off switch, both ways.
+
+    This reverses an earlier deliberate decision ("re-enabling would take the
+    operator's choice away"). The premise did not survive contact with a live
+    stack: there is no admin endpoint for asset enablement, so a disabled
+    profiled row can only mean this sync turned it off before the plugin was
+    configured — and honoring that forever made one late plugin setup a
+    permanent outage that no restart could clear (found live on Nile,
+    2026-08-11). An operator who wants an asset off disables its payment
+    method in BTCPay, and the sync follows."""
     usdt = session.get(Asset, USDT)
     assert usdt is not None
     usdt.enabled = False
@@ -67,8 +75,9 @@ def test_an_asset_that_is_already_disabled_is_left_alone(
     report = sync_payment_methods(session, FakeBTCPay(payment_methods=["BTC-CHAIN", "USDT_TRC20"]))
     session.commit()
 
-    assert USDT not in report.resolved
-    assert session.get(Asset, USDT).enabled is False  # type: ignore[union-attr]
+    assert report.resolved[USDT] == "USDT_TRC20"
+    assert USDT in report.enabled
+    assert session.get(Asset, USDT).enabled is True  # type: ignore[union-attr]
 
 
 def test_an_asset_with_no_registry_profile_is_disabled_rather_than_matched(

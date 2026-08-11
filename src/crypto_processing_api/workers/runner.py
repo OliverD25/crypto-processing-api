@@ -294,6 +294,7 @@ def startup_sync(gateway: BTCPayGateway) -> None:
         resolved=report.resolved,
         updated=report.updated,
         disabled=report.disabled,
+        enabled=report.enabled,
     )
 
 
