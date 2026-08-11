@@ -18,8 +18,12 @@ from typing import Any
 from crypto_processing_api.core.addresses import _base58_decode, _base58_encode
 from crypto_processing_api.gateway.trongrid import (
     TRANSFER_TOPIC,
+    Trc20Metadata,
+    TronGridContractError,
     TronGridError,
     TronTransaction,
+    _decode_abi_string,
+    _decode_abi_uint,
     parse_transaction_info,
 )
 
@@ -84,12 +88,64 @@ def transaction_info(
     return payload
 
 
+def abi_string(text: str) -> str:
+    """One ABI-encoded `string` return value, as a hex word sequence.
+
+    UNVERIFIED UNTIL NILE. This is the standard head-and-tail encoding every
+    current TRC-20 compiler emits — a 32-byte offset of 32, a 32-byte length,
+    then the characters right-padded to a multiple of 32 — but no live
+    `symbol()` response has ever been read into this repository. The Nile
+    session (`scripts/verify_nile.py`, stage 5) prints the difference between
+    a captured payload and this, and that diff is what makes it true.
+    """
+    raw = text.encode("utf-8")
+    padded = raw + b"\x00" * (-len(raw) % 32)
+    return f"{32:064x}{len(raw):064x}{padded.hex()}"
+
+
+def abi_uint(value: int) -> str:
+    """One ABI-encoded `uint` return value, as a hex word."""
+    return f"{value:064x}"
+
+
+def constant_result(*words: str) -> dict[str, Any]:
+    """A `triggerconstantcontract` payload for a call that succeeded.
+
+    UNVERIFIED UNTIL NILE. The fields around `constant_result` are the shape
+    TronGrid documents; the exact set it sends back for a read-only call has
+    not been captured from a live node yet. Only `constant_result` is read by
+    the client, so a surprise elsewhere costs nothing — but it is still a
+    difference the Nile session is meant to find and record.
+    """
+    return {
+        "result": {"result": True},
+        "energy_used": 1_082,
+        "constant_result": list(words),
+    }
+
+
+def constant_failure(*, code: str = "CONTRACT_VALIDATE_ERROR", message: str = "") -> dict[str, Any]:
+    """A `triggerconstantcontract` payload for a call the node refused.
+
+    UNVERIFIED UNTIL NILE. The hex-encoded `message` is the documented shape
+    and matches what TronGrid's own examples show.
+    """
+    return {"result": {"result": False, "code": code, "message": message.encode("utf-8").hex()}}
+
+
+def trc20_metadata_payloads(*, symbol: str = "USDT", decimals: int = 6) -> list[dict[str, Any]]:
+    """What `symbol()` then `decimals()` answer, in call order."""
+    return [constant_result(abi_string(symbol)), constant_result(abi_uint(decimals))]
+
+
 class FakeTronGrid:
     def __init__(self, *, block_height: int = 1_020) -> None:
         self.transactions: dict[str, dict[str, Any]] = {}
         self.block_height = block_height
         self.trx_balance_sun = 500 * 1_000_000
         self.trc20_balance = 1_000_000_000
+        #: Keyed by contract address; `None` means "no such contract here".
+        self.metadata: dict[str, tuple[str, int]] = {USDT_CONTRACT: ("USDT", 6)}
         self.calls: list[str] = []
         #: Set to an exception to make the next call of that name fail.
         self.fail_next: dict[str, TronGridError] = {}
@@ -145,3 +201,25 @@ class FakeTronGrid:
     def get_trc20_balance(self, address: str, contract: str) -> int:
         self._maybe_fail("get_trc20_balance")
         return self.trc20_balance
+
+    def get_trc20_metadata(self, contract: str, *, owner: str | None = None) -> Trc20Metadata:
+        """The same decoders the real client uses, over the same payload shape.
+
+        Returning `Trc20Metadata("USDT", 6)` directly would be a fake that
+        always agrees with itself. Encoding the answer and decoding it back
+        means a decoder that cannot read the standard encoding fails here too.
+        """
+        self._maybe_fail("get_trc20_metadata")
+        known = self.metadata.get(contract)
+        if known is None:
+            raise TronGridContractError(
+                f"{contract} did not answer symbol(): CONTRACT_VALIDATE_ERROR "
+                "(no contract at this address)"
+            )
+        symbol_payload, decimals_payload = trc20_metadata_payloads(
+            symbol=known[0], decimals=known[1]
+        )
+        return Trc20Metadata(
+            symbol=_decode_abi_string(symbol_payload["constant_result"][0]),
+            decimals=_decode_abi_uint(decimals_payload["constant_result"][0]),
+        )

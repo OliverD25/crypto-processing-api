@@ -54,6 +54,12 @@ USDT_CONTRACT_NILE = "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
 TRONGRID_MAINNET = "https://api.trongrid.io"
 TRONGRID_NILE = "https://nile.trongrid.io"
 
+#: The placeholder caller for a read-only contract call. `triggerconstantcontract`
+#: wants an `owner_address` even though nothing is signed and no fee is paid, so
+#: TronWeb sends the all-zero address (hex `41` + twenty zero bytes) whenever the
+#: caller does not matter. Reading `symbol()` is exactly that case.
+CONSTANT_CALL_OWNER = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"
+
 
 class TronGridError(Exception):
     retryable = False
@@ -85,6 +91,15 @@ class TronGridServerError(TronGridError):
     retryable = True
 
 
+class TronGridContractError(TronGridError):
+    """The node answered, the contract call did not.
+
+    Separate from `TronGridServerError` because retrying cannot help: a wrong
+    contract address, a contract that has no such method, or return data that
+    is not what the ABI promised all answer the same way on the next attempt.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class TronTransfer:
     contract: str
@@ -112,6 +127,19 @@ class TronTransaction:
         if (self.receipt_result or "").upper() != "SUCCESS":
             return False
         return self.contract_result is None or self.contract_result.upper() == "SUCCESS"
+
+
+@dataclass(frozen=True, slots=True)
+class Trc20Metadata:
+    """What a TRC-20 contract calls itself, read from the contract itself.
+
+    The point of asking is identity: the only thing that distinguishes the real
+    USDT contract from a token someone deployed with a similar-looking address
+    is what it answers.
+    """
+
+    symbol: str
+    decimals: int
 
 
 @runtime_checkable
@@ -175,6 +203,77 @@ def parse_transaction_info(payload: dict[str, Any]) -> TronTransaction | None:
         contract_result=contract_result,
         transfers=tuple(transfers),
     )
+
+
+def _as_text(raw: bytes) -> str:
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise TronGridContractError("the contract returned a symbol that is not UTF-8") from exc
+    if not text.strip() or not text.isprintable():
+        raise TronGridContractError(f"the contract returned an unreadable symbol: {raw.hex()}")
+    return text.strip()
+
+
+def _decode_abi_string(raw: str) -> str:
+    """ABI-decode a `string` return value.
+
+    Two encodings are in the wild and both have to be read, because guessing
+    between them is how a preflight prints a symbol nobody ever deployed:
+
+    - the standard one, which every current TRC-20 uses: a 32-byte offset (32),
+      a 32-byte length, then the characters padded up to a multiple of 32
+    - `bytes32`, which some older tokens declare instead: the characters in one
+      word, zero-padded on the right
+    """
+    data = raw.strip().removeprefix("0x")
+    try:
+        blob = bytes.fromhex(data)
+    except ValueError as exc:
+        raise TronGridContractError("the contract's return data is not hexadecimal") from exc
+    if len(blob) < 32:
+        raise TronGridContractError(
+            f"expected at least one 32-byte word of return data, got {len(blob)} bytes"
+        )
+
+    offset = int.from_bytes(blob[:32], "big")
+    if len(blob) >= 64 and offset == 32:
+        length = int.from_bytes(blob[32:64], "big")
+        if 64 + length <= len(blob):
+            return _as_text(blob[64 : 64 + length])
+    return _as_text(blob[:32].rstrip(b"\x00"))
+
+
+def _decode_abi_uint(raw: str) -> int:
+    """The first 32-byte word of a call's return data, as an integer."""
+    data = raw.strip().removeprefix("0x")
+    if len(data) < 64:
+        raise TronGridContractError(
+            f"expected a 32-byte word of return data, got {len(data)} hex characters"
+        )
+    try:
+        return int(data[:64], 16)
+    except ValueError as exc:
+        raise TronGridContractError("the contract's return data is not hexadecimal") from exc
+
+
+def _call_failure(payload: dict[str, Any]) -> str:
+    """Whatever the node said about a constant call that returned nothing.
+
+    TronGrid hex-encodes the message, which makes it unreadable in a terminal
+    at exactly the moment an operator needs to read it.
+    """
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return "no constant_result and no reason given"
+    code = str(result.get("code") or "no code")
+    encoded = result.get("message")
+    if not isinstance(encoded, str) or not encoded:
+        return code
+    try:
+        return f"{code} ({bytes.fromhex(encoded).decode('utf-8')})"
+    except (ValueError, UnicodeDecodeError):
+        return f"{code} ({encoded})"
 
 
 class TronGridClient:
@@ -264,21 +363,71 @@ class TronGridClient:
         payload = self._post("/wallet/getaccount", {"address": address, "visible": True})
         return int((payload or {}).get("balance") or 0)
 
-    def get_trc20_balance(self, address: str, contract: str) -> int:
+    def _constant_call(
+        self, *, contract: str, owner: str, selector: str, parameter: str = ""
+    ) -> dict[str, Any]:
         payload = self._post(
             "/wallet/triggerconstantcontract",
             {
-                "owner_address": address,
+                "owner_address": owner,
                 "contract_address": contract,
-                "function_selector": "balanceOf(address)",
-                "parameter": _pad_address(address),
+                "function_selector": selector,
+                "parameter": parameter,
                 "visible": True,
             },
         )
-        results = (payload or {}).get("constant_result") or []
+        return payload if isinstance(payload, dict) else {}
+
+    def _constant_result(self, *, contract: str, owner: str, selector: str) -> str:
+        """One constant call's return data, insisting there is some.
+
+        `get_trc20_balance` reads an empty result as zero, which is right for a
+        balance: an account TRON has never activated genuinely holds nothing.
+        Nothing else may do that — an empty answer to `symbol()` is a contract
+        that did not answer, and reading it as "" would turn a wrong contract
+        address into a quiet pass.
+        """
+        payload = self._constant_call(contract=contract, owner=owner, selector=selector)
+        results = payload.get("constant_result") or []
+        if not results:
+            raise TronGridContractError(
+                f"{contract} did not answer {selector}: {_call_failure(payload)}"
+            )
+        return str(results[0])
+
+    def get_trc20_balance(self, address: str, contract: str) -> int:
+        payload = self._constant_call(
+            contract=contract,
+            owner=address,
+            selector="balanceOf(address)",
+            parameter=_pad_address(address),
+        )
+        results = payload.get("constant_result") or []
         if not results:
             return 0
         return int(results[0], 16)
+
+    def get_trc20_metadata(self, contract: str, *, owner: str | None = None) -> Trc20Metadata:
+        """What a contract calls itself: `symbol()` and `decimals()`.
+
+        Read-only, free, and available on any network, which is what makes it a
+        preflight rather than a drill. It answers the one question a format
+        check on an address cannot: whether the thing deployed there is the
+        token this deployment thinks it is.
+
+        `owner` is the address the call is attributed to. Nothing is signed and
+        no fee is paid, so it is a formality — but a node that refuses the
+        default placeholder can be given a real address instead.
+        """
+        caller = owner or CONSTANT_CALL_OWNER
+        return Trc20Metadata(
+            symbol=_decode_abi_string(
+                self._constant_result(contract=contract, owner=caller, selector="symbol()")
+            ),
+            decimals=_decode_abi_uint(
+                self._constant_result(contract=contract, owner=caller, selector="decimals()")
+            ),
+        )
 
 
 def _pad_address(base58_address: str) -> str:

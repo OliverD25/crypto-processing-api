@@ -20,11 +20,14 @@ import pytest
 from crypto_processing_api.gateway import trongrid
 from crypto_processing_api.gateway.trongrid import (
     BACKOFF_SECONDS,
+    CONSTANT_CALL_OWNER,
     GET_ATTEMPTS,
     TRANSFER_TOPIC,
     USDT_CONTRACT_MAINNET,
+    USDT_CONTRACT_NILE,
     TronGridAuthError,
     TronGridClient,
+    TronGridContractError,
     TronGridError,
     TronGridRateLimited,
     TronGridServerError,
@@ -33,7 +36,18 @@ from crypto_processing_api.gateway.trongrid import (
     build_client,
     parse_transaction_info,
 )
-from tests.fake_tron import DESTINATION, HOT_WALLET, to_hex, to_topic
+from tests.fake_tron import (
+    DESTINATION,
+    HOT_WALLET,
+    FakeTronGrid,
+    abi_string,
+    abi_uint,
+    constant_failure,
+    constant_result,
+    to_hex,
+    to_topic,
+    trc20_metadata_payloads,
+)
 
 BASE_URL = "https://nile.trongrid.test"
 TXID = "a" * 64
@@ -326,6 +340,159 @@ def test_the_balance_call_passes_the_address_as_an_abi_argument() -> None:
     assert body["parameter"] == to_topic(HOT_WALLET)
     assert body["owner_address"] == HOT_WALLET
     assert body["contract_address"] == USDT_CONTRACT_MAINNET
+
+
+# -- contract identity -----------------------------------------------------
+#
+# `symbol()` and `decimals()` are the preflight for the Nile session: a format
+# check on a contract address proves the characters are well-formed, and
+# nothing at all about what is deployed there.
+
+
+def metadata_client() -> tuple[TronGridClient, ScriptedTransport]:
+    symbol, decimals = trc20_metadata_payloads()
+    return make_client(httpx.Response(200, json=symbol), httpx.Response(200, json=decimals))
+
+
+def test_metadata_reads_the_symbol_and_the_decimals() -> None:
+    client, _ = metadata_client()
+    metadata = client.get_trc20_metadata(USDT_CONTRACT_NILE)
+    assert metadata.symbol == "USDT"
+    assert metadata.decimals == 6
+
+
+def test_metadata_asks_the_contract_by_its_base58_address() -> None:
+    client, transport = metadata_client()
+    client.get_trc20_metadata(USDT_CONTRACT_NILE)
+    body = json.loads(transport.requests[0].content)
+    assert transport.requests[0].url.path == "/wallet/triggerconstantcontract"
+    assert body["contract_address"] == USDT_CONTRACT_NILE
+    assert body["function_selector"] == "symbol()"
+    assert body["visible"] is True
+    assert json.loads(transport.requests[1].content)["function_selector"] == "decimals()"
+
+
+def test_the_placeholder_owner_is_used_when_no_caller_is_given() -> None:
+    """Nothing is signed, so the caller is a formality the endpoint insists on."""
+    client, transport = metadata_client()
+    client.get_trc20_metadata(USDT_CONTRACT_NILE)
+    assert json.loads(transport.requests[0].content)["owner_address"] == CONSTANT_CALL_OWNER
+
+
+def test_a_caller_can_be_supplied_for_a_node_that_refuses_the_placeholder() -> None:
+    client, transport = metadata_client()
+    client.get_trc20_metadata(USDT_CONTRACT_NILE, owner=HOT_WALLET)
+    assert json.loads(transport.requests[0].content)["owner_address"] == HOT_WALLET
+
+
+def test_a_contract_that_answers_nothing_is_an_error_not_an_empty_symbol(
+    slept: list[float],
+) -> None:
+    """The whole point is catching a wrong address, so "" must never pass."""
+    client, _ = make_client(
+        httpx.Response(200, json=constant_failure(message="contract not found"))
+    )
+    with pytest.raises(TronGridContractError, match="contract not found"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_the_nodes_reason_is_decoded_out_of_its_hex(slept: list[float]) -> None:
+    client, _ = make_client(httpx.Response(200, json=constant_failure(message="no such method")))
+    with pytest.raises(TronGridContractError, match=r"CONTRACT_VALIDATE_ERROR \(no such method\)"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_an_unreadable_reason_is_reported_as_it_arrived(slept: list[float]) -> None:
+    refusal = {"result": {"code": "OTHER", "message": "zz"}}
+    client, _ = make_client(httpx.Response(200, json=refusal))
+    with pytest.raises(TronGridContractError, match=r"OTHER \(zz\)"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_a_silent_refusal_still_names_the_contract(slept: list[float]) -> None:
+    client, _ = make_client(httpx.Response(200, json={}))
+    with pytest.raises(TronGridContractError, match="no reason given"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_a_contract_error_is_not_retried(slept: list[float]) -> None:
+    """Retrying a wrong contract address gets the same answer three times."""
+    client, transport = make_client(httpx.Response(200, json=constant_failure()))
+    with pytest.raises(TronGridContractError):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+    assert len(transport.requests) == 1
+    assert slept == []
+
+
+def test_a_bytes32_symbol_is_read_as_well_as_a_string_one() -> None:
+    """Some older tokens declare `bytes32`. Both readings are real encodings."""
+    packed = b"USDT".ljust(32, b"\x00").hex()
+    client, _ = make_client(
+        httpx.Response(200, json=constant_result(packed)),
+        httpx.Response(200, json=constant_result(abi_uint(6))),
+    )
+    assert client.get_trc20_metadata(USDT_CONTRACT_NILE).symbol == "USDT"
+
+
+def test_a_longer_symbol_survives_its_padding() -> None:
+    """The length word is authoritative; the padding is not part of the name."""
+    client, _ = make_client(
+        httpx.Response(200, json=constant_result(abi_string("Tether USD"))),
+        httpx.Response(200, json=constant_result(abi_uint(6))),
+    )
+    assert client.get_trc20_metadata(USDT_CONTRACT_NILE).symbol == "Tether USD"
+
+
+def test_a_symbol_that_is_not_text_is_refused(slept: list[float]) -> None:
+    client, _ = make_client(httpx.Response(200, json=constant_result("ff" * 32)))
+    with pytest.raises(TronGridContractError, match="not UTF-8"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_an_all_zero_symbol_is_refused(slept: list[float]) -> None:
+    """A contract that returns nothing but padding has not answered."""
+    client, _ = make_client(httpx.Response(200, json=constant_result("00" * 32)))
+    with pytest.raises(TronGridContractError, match="unreadable symbol"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_return_data_that_is_not_hexadecimal_is_refused(slept: list[float]) -> None:
+    client, _ = make_client(httpx.Response(200, json=constant_result("nonsense")))
+    with pytest.raises(TronGridContractError, match="not hexadecimal"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_a_truncated_word_is_refused_rather_than_padded(slept: list[float]) -> None:
+    client, _ = make_client(httpx.Response(200, json=constant_result("41" * 8)))
+    with pytest.raises(TronGridContractError, match="at least one 32-byte word"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_a_truncated_decimals_word_is_refused(slept: list[float]) -> None:
+    client, _ = make_client(
+        httpx.Response(200, json=constant_result(abi_string("USDT"))),
+        httpx.Response(200, json=constant_result("06")),
+    )
+    with pytest.raises(TronGridContractError, match="32-byte word"):
+        client.get_trc20_metadata(USDT_CONTRACT_NILE)
+
+
+def test_the_fake_and_the_client_agree_on_the_same_payload() -> None:
+    """The fake is only worth anything while it answers what the client does.
+
+    Both run the real decoders over the real encoding, so this fails the moment
+    one of them starts inventing an answer.
+    """
+    client, _ = metadata_client()
+    fake = FakeTronGrid()
+    assert client.get_trc20_metadata(USDT_CONTRACT_MAINNET) == fake.get_trc20_metadata(
+        USDT_CONTRACT_MAINNET
+    )
+
+
+def test_the_fake_refuses_a_contract_it_does_not_have() -> None:
+    with pytest.raises(TronGridContractError):
+        FakeTronGrid().get_trc20_metadata(USDT_CONTRACT_NILE)
 
 
 def test_pad_address_matches_the_topic_encoding() -> None:
