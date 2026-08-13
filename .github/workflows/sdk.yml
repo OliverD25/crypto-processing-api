@@ -6,10 +6,12 @@ name: SDKs
 # the shared signature vectors — protects the small handwritten layer that
 # codegen cannot produce.
 #
-# The publish jobs are deliberately inert. Neither registry account exists yet;
-# both jobs report what is missing and succeed, so a release does not go red
-# over an account nobody has created. See sdks/README.md for the two setup
-# steps that switch them on.
+# Both publish jobs stay inert until a repository variable records that the
+# registry's one-time trusted-publisher registration has been done. Until then
+# they report what is missing and succeed, so a release does not go red over a
+# setup step nobody has taken. Neither job holds a token: both authenticate
+# with the workflow's OIDC identity. See sdks/README.md, "Turning publishing
+# on".
 
 on:
   pull_request:
@@ -274,23 +276,28 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     permissions:
-      # Provenance: npm records which workflow, at which commit, built the
-      # tarball. The repository is public, so the attestation is verifiable.
+      # The same OIDC identity does both jobs of the old token: it authenticates
+      # the publish, and it is what lets npm record provenance — which workflow,
+      # at which commit, built the tarball. The repository is public, so the
+      # attestation is verifiable. Nothing long-lived is stored here, which
+      # matters more than it used to: npm ends direct token publishing in
+      # January 2027, and a token that quietly expires takes the npm half of a
+      # release with it.
       id-token: write
     steps:
-      - name: Is there a token to publish with?
+      - name: Is the trusted publisher registered?
         id: gate
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # npm's OIDC-only publishing is not available for this package shape
-          # yet, so one scoped automation token is still required.
-          if [ -n "$NPM_TOKEN" ]; then
+          # A repository variable rather than a secret, for the same reason as
+          # PyPI above — nothing secret is involved. It only records that the
+          # one-time registration on the npm package has happened.
+          if [ "${{ vars.NPM_TRUSTED_PUBLISHER }}" = "true" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::npm publishing is off. Add the repository secret NPM_TOKEN"
-            echo "::notice::(an automation token scoped to @oliverd25/crypto-processing-client)."
+            echo "::notice::npm publishing is off. Set the repository variable"
+            echo "::notice::NPM_TRUSTED_PUBLISHER=true once the trusted publisher is"
+            echo "::notice::registered on @oliverd25/crypto-processing-client."
             echo "::notice::See sdks/README.md, 'Turning publishing on'."
           fi
 
@@ -300,9 +307,23 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # Kept, and it carries no credential: the .npmrc it writes has an auth
+          # line reading ${NODE_AUTH_TOKEN}, which nothing here sets. From v7
+          # the action stopped exporting a placeholder value for that variable,
+          # so the line resolves to nothing and npm falls through to OIDC. On v6
+          # it resolved to a dummy token and the publish failed with a 404 — so
+          # this action must not be pinned back.
           registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
+
+      # OIDC publishing landed in npm 11.5.1 and Node 22 still ships npm 10, so
+      # without this step `npm publish` asks for an auth token and fails. Pinned
+      # rather than `@latest`, so the one step that cannot be tested before a
+      # tag does not change on its own.
+      - name: An npm new enough to publish over OIDC
+        if: steps.gate.outputs.ready == 'true'
+        run: npm install -g npm@11.19.0
 
       - name: Has this version already been published?
         id: existing
@@ -321,8 +342,6 @@ jobs:
       - name: Build and publish
         if: steps.gate.outputs.ready == 'true' && steps.existing.outputs.skip == 'false'
         working-directory: sdks/typescript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm ci --no-audit --no-fund
           npm run build

@@ -112,9 +112,11 @@ tag's version, because a wrong version on PyPI can never be replaced.
 
 ## Turning publishing on
 
-**Nothing is published yet.** Neither registry account exists, and both publish
-jobs report what is missing and pass, so a release does not go red over it.
-Two one-time steps switch them on, in either order.
+Each publish job stays off until a repository variable says its one-time
+registration on the registry is done; until then the job reports what is
+missing and passes, so a release does not go red over it. No token is stored
+for either registry — both authenticate with the workflow's OIDC identity. The
+two setups are independent and can be done in either order.
 
 ### 1. PyPI, via trusted publishing
 
@@ -144,31 +146,56 @@ instead.
 It is a variable rather than a secret on purpose: there is no secret involved,
 it only records that step 2 is done.
 
-### 2. npm, with provenance
+### 2. npm, via trusted publishing
 
-npm's OIDC-only publishing does not cover this package shape yet, so one token
-is still needed. Scope it to the single package and nothing else.
+No token is stored anywhere here either. npm verifies the workflow's OIDC
+identity, and the same identity is what lets the publish step pass
+`--provenance` — npm then records which workflow, at which commit, built the
+tarball. That works because this repository is public.
 
-1. Create an npm account, and create the `@oliverd25` scope (npm →
-   **Add organization**, free for public packages).
-2. **Access Tokens → Generate New Token → Granular Access Token**.
-   The token picker can only list packages that already exist, and this one
-   does not exist until the first release publishes it. So bootstrap in two
-   rounds:
-   - **Before the first publish**: Read and write on **All packages**
-     (the account owns no packages yet, so this protects an empty set),
-     expiration **30 days**, Organizations: no permissions.
-   - **After the first publish** (release checklist step): generate a new
-     token limited to `@oliverd25/crypto-processing-client`, replace the
-     repository secret, revoke the bootstrap token.
-3. Add it here as a repository secret named `NPM_TOKEN`:
+**The first publish of the package could not be automated.** Since August 2026
+npm treats creating a package as a sensitive operation and requires a human
+second factor, so no token and no workflow can do it. `0.2.0` was therefore
+published by hand, once, from a maintainer's machine:
+
+```sh
+cd "<repo root>/sdks/typescript"; npm ci; npm run build; npm login; npm publish --access public
+```
+
+`npm login` opens a browser and asks for the account's second factor, and
+`npm publish` asks again. That first version carries no provenance, because
+provenance needs the workflow's OIDC identity and there was no workflow. This
+step is done and does not come back — it only applies to a package that does
+not exist yet.
+
+Now that the package exists, the rest is registration:
+
+1. On npmjs.com, open the package → **Settings → Trusted Publisher → GitHub
+   Actions**, and fill in exactly:
+
+   | Field | Value |
+   |---|---|
+   | Organization or user | `OliverD25` |
+   | Repository | `crypto-processing-api` |
+   | Workflow filename | `sdk.yml` |
+   | Environment | `npm` |
+
+2. In this repository, set the variable that tells the job the registration
+   happened:
 
    ```sh
-   gh secret set NPM_TOKEN --repo OliverD25/crypto-processing-api
+   gh variable set NPM_TRUSTED_PUBLISHER --body true --repo OliverD25/crypto-processing-api
    ```
 
-The publish step passes `--provenance`, so npm records which workflow at which
-commit built the tarball. That works because this repository is public.
+The account's **require two-factor authentication for writes** setting can stay
+on. It governs token writes, and an OIDC publish is not one.
+
+**Why the token path is gone.** npm's 2026 deprecations end direct publishing
+with a stored token around January 2027. A token also stopped being able to
+create a package in August 2026 — which is how the first release found out, in
+CI, with three one-time-password failures. Trusted publishing is what npm keeps
+supporting, and it removes the failure where a token silently expires and takes
+the npm half of a release with it.
 
 ### What happens then
 

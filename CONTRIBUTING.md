@@ -151,11 +151,12 @@ file anyone has touched is not. From then on every future migration must be
 able to upgrade it, which is what catches the migration that is correct on
 empty tables and wrong on data.
 
-**After the FIRST release that publishes the npm package**: the `NPM_TOKEN`
-secret was bootstrapped with all-packages access because the package did not
-exist yet (see `sdks/README.md`). Generate a new granular token limited to
-`@oliverd25/crypto-processing-client`, replace the repository secret, and
-revoke the bootstrap token.
+**Nothing to rotate.** Both publish jobs authenticate over OIDC, so no token
+exists to expire or leak. Each registry is switched on by a repository variable
+recording its one-time trusted-publisher registration — `PYPI_TRUSTED_PUBLISHER`
+and `NPM_TRUSTED_PUBLISHER` (see `sdks/README.md`). The old `NPM_TOKEN` secret
+is deleted once the npm trusted publisher is registered; nothing reads it any
+more.
 
 ## Commit messages
 
