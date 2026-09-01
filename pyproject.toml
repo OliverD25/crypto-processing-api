@@ -32,11 +32,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "hypothesis==6.165.2",
+    "hypothesis==6.165.10",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "ruff==0.16.2",
-    "mypy==2.3.0",
+    "ruff==0.16.5",
+    "mypy==2.3.1",
 ]
 
 [project.urls]
