@@ -20,12 +20,12 @@ classifiers = [
 
 dependencies = [
     "fastapi==0.141.1",
-    "uvicorn[standard]==0.52.1",
-    "pydantic==2.13.4",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
-    "SQLAlchemy==2.0.51",
-    "psycopg[binary]==3.3.4",
-    "alembic==1.19.1",
+    "SQLAlchemy==2.1.1",
+    "psycopg[binary]==3.3.6",
+    "alembic==1.20.0",
     "httpx==0.28.1",
     "structlog==26.1.0",
 ]
