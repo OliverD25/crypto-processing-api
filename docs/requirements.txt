@@ -11,7 +11,7 @@
 # leaves the migration as a decision rather than an emergency. Re-evaluate at
 # v0.3.
 mkdocs==1.6.1
-mkdocs-material==9.7.7
+mkdocs-material==9.8.0
 # Used directly: pymdownx.snippets is how the changelog and the two client
 # READMEs appear on the site without being copied into docs/.
-pymdown-extensions==11.0.1
+pymdown-extensions==12.3
